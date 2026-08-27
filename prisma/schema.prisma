@@ -38,7 +38,7 @@ model User {
   fullName     String
   email        String           @unique
   passwordHash String
-  role         String           @default("CASHIER")
+  role         String           @default("MANAGER")
   batchOrders  ItemBatchOrder[]
   sales        Sale[]
   dailyReports DailyReport[]
