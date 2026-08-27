@@ -1,0 +1,88 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          Int              @id @default(autoincrement())
+  name        String
+  category    String?
+  unitPrice   Decimal
+  crateSize   Int?
+  stock       Stock?
+  batchOrders ItemBatchOrder[]
+  saleItems   SaleItem[]
+}
+
+model Stock {
+  id              Int     @id @default(autoincrement())
+  productId       Int     @unique
+  product         Product @relation(fields: [productId], references: [id])
+  quantityCrates  Int     @default(0)
+  quantityBottles Int     @default(0)
+  reorderLevel    Int     @default(0)
+}
+
+model User {
+  id           Int              @id @default(autoincrement())
+  fullName     String
+  email        String           @unique
+  passwordHash String
+  role         String           @default("CASHIER")
+  batchOrders  ItemBatchOrder[]
+  sales        Sale[]
+  dailyReports DailyReport[]
+}
+
+model ItemBatchOrder {
+  id           Int       @id @default(autoincrement())
+  productId    Int
+  product      Product   @relation(fields: [productId], references: [id])
+  receivedById Int
+  receivedBy   User      @relation(fields: [receivedById], references: [id])
+  crateCount   Int       @default(0)
+  bottleCount  Int       @default(0)
+  costPerUnit  Decimal
+  expiryDate   DateTime?
+  receivedAt   DateTime  @default(now())
+}
+
+model Sale {
+  id          Int        @id @default(autoincrement())
+  soldById    Int
+  soldBy      User       @relation(fields: [soldById], references: [id])
+  totalAmount Decimal
+  createdAt   DateTime   @default(now())
+  status      String     @default("pending")
+  items       SaleItem[]
+}
+
+model SaleItem {
+  id              Int     @id @default(autoincrement())
+  saleId          Int
+  sale            Sale    @relation(fields: [saleId], references: [id])
+  productId       Int
+  product         Product @relation(fields: [productId], references: [id])
+  quantityBottles Int
+  unitPrice       Decimal
+  lineTotal       Decimal
+}
+
+model DailyReport {
+  id               Int      @id @default(autoincrement())
+  reportDate       DateTime @unique
+  generatedById    Int
+  generatedBy      User     @relation(fields: [generatedById], references: [id])
+  totalSalesAmount Decimal
+}
