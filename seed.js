@@ -1,5 +1,12 @@
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
+
+const SALT_ROUNDS = 10;
+
+async function hashPassword(plainPassword) {
+  return bcrypt.hash(plainPassword, SALT_ROUNDS);
+}
 
 async function main() {
   // Clear existing data first (children before parents, to respect relations)
@@ -11,15 +18,17 @@ async function main() {
   await prisma.product.deleteMany();
   await prisma.user.deleteMany();
 
-  // 1. Users (10)
+  // 1. Users (10) - passwords are now properly hashed with bcrypt
   const roles = ['ADMIN', 'MANAGER'];
   const users = [];
   for (let i = 1; i <= 10; i++) {
+    const plainPassword = `password_${i}`; // In real use, these would be unique per user
+    const passwordHash = await hashPassword(plainPassword);
     const user = await prisma.user.create({
       data: {
         fullName: `Staff Member ${i}`,
         email: `staff${i}@floramagg.com`,
-        passwordHash: `hashed_password_${i}`,
+        passwordHash,
         role: roles[i % roles.length],
       },
     });
@@ -122,7 +131,7 @@ async function main() {
     });
   }
 
-  console.log('Seed complete: 10 rows created in each of the 7 tables.');
+  console.log('Seed complete: 10 rows created in each of the 7 tables (passwords hashed with bcrypt).');
 }
 
 main()

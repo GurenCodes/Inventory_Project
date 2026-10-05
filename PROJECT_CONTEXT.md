@@ -98,7 +98,7 @@ A staff account.
 |---|---|---|
 | fullName | String (required) | Display name |
 | email | String (required, unique) | Login identifier |
-| passwordHash | String (required) | **Currently stores PLAIN TEXT, not a real hash — see Section 9, Known Issues. Must be fixed with bcrypt before real use.** |
+| passwordHash | String (required) | Stores bcrypt hash of the user's password (salt rounds = 10). Never plain text. |
 | role | String, default "MANAGER" | Only two values are used in practice: `ADMIN` and `MANAGER` |
 
 **Why only two roles, no "Cashier":** this was a deliberate scope decision — the
@@ -204,7 +204,7 @@ Drinks-shop/
 │   └── Service/           (ProductService.js, StockService.js, SaleService.js, ReportService.js)
 ├── UserManagement/
 │   ├── Repository/        (UserRepository.js)
-│   └── Service/           (AuthService.js)
+│   └── Service/           (AuthService.js, UserService.js)
 ├── prisma/
 │   └── schema.prisma
 ├── .env                   (DATABASE_URL — Aiven connection string)
@@ -260,12 +260,11 @@ too.
   others fail.
 - **ReportService.generateDailyReport()** — pulls all Sales for a given date with
   `status: 'completed'`, sums `totalAmount`, saves as one DailyReport row.
-- **AuthService.login()** — checks email/password (currently plain-text, see Section
-  9), returns the user object with `passwordHash` stripped out.
-- **AuthService.requireAdmin() / isAdmin() / isManager()** — role-check helpers,
-  designed to be called at the start of any service function that should be
-  restricted — not yet applied to every function that should use them (see Section
-  8).
+- **AuthService.login()** — checks email/password using `bcrypt.compare()` against the stored hash, returns the user object with `passwordHash` stripped out.
+- **AuthService.requireAdmin() / isAdmin() / isManager()** — role-check helpers, designed to be called at the start of any service function that should be restricted — not yet applied to every function that should use them (see Section 8).
+- **UserService.createUser()** — creates a new user with password securely hashed via bcrypt (salt rounds = 10). Handles email normalization (lowercase), validation, and duplicate detection.
+- **UserService.verifyPassword()** — low-level helper to verify a plain-text password against a stored bcrypt hash.
+- **UserService hashPassword() / updatePassword() / getUserById() / getUserByEmail() / listUsers()** — user management utilities; all lookup methods strip `passwordHash` from returned objects.
 
 ---
 
@@ -306,18 +305,7 @@ in mind — when building an API layer or UI, these are the intended user journe
 
 ---
 
-## 9. Known Issues / Must-Fix Before Real Use
-
-- **`AuthService.login()` currently does a plain-text string comparison for
-  passwords** (`password === user.passwordHash`), matching how seed data was
-  created. This is NOT secure and must be replaced with `bcrypt` hashing (on user
-  creation) and `bcrypt.compare()` (on login) before any real staff accounts or
-  real login flow goes live. Do not treat the current implementation as acceptable
-  — it exists only as a placeholder for early development/testing.
-
----
-
-## 10. General Guidance for the AI Assistant
+## 9. General Guidance for the AI Assistant
 
 - Follow the existing folder/naming conventions (Section 5) for any new file.
 - Keep repositories single-table; put any multi-table coordination or business rule
