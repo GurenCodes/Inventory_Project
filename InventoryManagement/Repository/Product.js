@@ -14,10 +14,11 @@ class ProductRepository {
     });
   }
 
-  async findAll(category) {
-    return prisma.product.findMany({
-      where: category ? { category } : undefined,
-    });
+  async findAll(category, onlyActive = false) {
+    const where = {};
+    if (category) where.category = category;
+    if (onlyActive) where.isActive = true;
+    return prisma.product.findMany({ where });
   }
 
   async update(id, data) {

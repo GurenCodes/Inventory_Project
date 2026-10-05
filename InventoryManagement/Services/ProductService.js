@@ -7,8 +7,28 @@ class ProductService {
   // Your schema requires every Product to eventually have a Stock row,
   // so this prevents ever creating a product that has no stock tracking.
   async registerProduct({ name, category, unitPrice, crateSize, reorderLevel }) {
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      throw new Error('Product name is required');
+    }
+    if (unitPrice === undefined || unitPrice === null) {
+      throw new Error('Unit price is required');
+    }
+    if (typeof unitPrice !== 'number' || unitPrice <= 0) {
+      throw new Error('Unit price must be a positive number');
+    }
+    if (crateSize !== undefined && crateSize !== null) {
+      if (typeof crateSize !== 'number' || crateSize < 0) {
+        throw new Error('Crate size must be a non-negative number');
+      }
+    }
+    if (reorderLevel !== undefined && reorderLevel !== null) {
+      if (typeof reorderLevel !== 'number' || reorderLevel < 0) {
+        throw new Error('Reorder level must be a non-negative number');
+      }
+    }
+
     const product = await productRepository.create({
-      name,
+      name: name.trim(),
       category,
       unitPrice,
       crateSize,
@@ -26,6 +46,28 @@ class ProductService {
 
   // Update a product's basic details (price change, category change, etc.)
   async updateProduct(id, data) {
+    if (data.unitPrice !== undefined) {
+      if (typeof data.unitPrice !== 'number' || data.unitPrice <= 0) {
+        throw new Error('Unit price must be a positive number');
+      }
+    }
+    if (data.crateSize !== undefined && data.crateSize !== null) {
+      if (typeof data.crateSize !== 'number' || data.crateSize < 0) {
+        throw new Error('Crate size must be a non-negative number');
+      }
+    }
+    if (data.name !== undefined) {
+      if (typeof data.name !== 'string' || data.name.trim() === '') {
+        throw new Error('Product name cannot be empty');
+      }
+      data.name = data.name.trim();
+    }
+    if (data.reorderLevel !== undefined && data.reorderLevel !== null) {
+      if (typeof data.reorderLevel !== 'number' || data.reorderLevel < 0) {
+        throw new Error('Reorder level must be a non-negative number');
+      }
+    }
+
     return productRepository.update(id, data);
   }
 
@@ -37,11 +79,28 @@ class ProductService {
     return productRepository.findAll(category);
   }
 
-  async deleteProduct(id) {
-    // Note: this will fail if Stock/SaleItem/ItemBatchOrder rows still
-    // reference this product, since Prisma enforces the relation.
-    // Delete or reassign those first if you need to remove a product.
-    return productRepository.delete(id);
+  // Marks a product as discontinued (isActive = false) instead of deleting.
+  // This preserves sales, stock, and delivery history.
+  async discontinueProduct(id) {
+    const product = await productRepository.findById(id);
+    if (!product) {
+      throw new Error(`Product ${id} does not exist`);
+    }
+    return productRepository.update(id, { isActive: false });
+  }
+
+  // Restore a discontinued product
+  async restoreProduct(id) {
+    const product = await productRepository.findById(id);
+    if (!product) {
+      throw new Error(`Product ${id} does not exist`);
+    }
+    return productRepository.update(id, { isActive: true });
+  }
+
+  // List only active products (for catalog views)
+  async listActiveProducts(category) {
+    return productRepository.findAll(category, true);
   }
 }
 

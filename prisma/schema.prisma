@@ -19,6 +19,7 @@ model Product {
   category    String?
   unitPrice   Decimal
   crateSize   Int?
+  isActive    Boolean          @default(true)
   stock       Stock?
   batchOrders ItemBatchOrder[]
   saleItems   SaleItem[]

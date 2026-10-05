@@ -4,6 +4,7 @@ const prisma = new PrismaClient();
 
 const saleRepository = require('../Repository/Sale');
 const stockRepository = require('../Repository/Stock');
+const productRepository = require('../Repository/Product');
 
 class SaleService {
   // items = [{ productId, quantityBottles, unitPrice }, ...]
@@ -13,8 +14,39 @@ class SaleService {
     if (!items || items.length === 0) {
       throw new Error('A sale must have at least one item');
     }
+    if (!soldById) {
+      throw new Error('Sold by user ID is required');
+    }
 
-    // 1. Check stock availability for every item first
+    // 1. Validate all items first
+    for (const item of items) {
+      if (!item.productId) {
+        throw new Error('Each sale item must have a productId');
+      }
+      if (item.quantityBottles === undefined || item.quantityBottles === null) {
+        throw new Error('Each sale item must have a quantityBottles');
+      }
+      if (typeof item.quantityBottles !== 'number' || item.quantityBottles <= 0) {
+        throw new Error('Quantity must be a positive number');
+      }
+      if (item.unitPrice === undefined || item.unitPrice === null) {
+        throw new Error('Each sale item must have a unitPrice');
+      }
+      if (typeof item.unitPrice !== 'number' || item.unitPrice <= 0) {
+        throw new Error('Unit price must be a positive number');
+      }
+
+      // Check if product exists and is active
+      const product = await productRepository.findById(item.productId);
+      if (!product) {
+        throw new Error(`Product ${item.productId} does not exist`);
+      }
+      if (!product.isActive) {
+        throw new Error(`Product ${item.productId} is discontinued and cannot be sold`);
+      }
+    }
+
+    // 2. Check stock availability for every item
     for (const item of items) {
       const stock = await stockRepository.findByProductId(item.productId);
       if (!stock) {
@@ -27,14 +59,14 @@ class SaleService {
       }
     }
 
-    // 2. Calculate line totals and the sale's total
+    // 3. Calculate line totals and the sale's total
     const lineItems = items.map((item) => ({
       ...item,
       lineTotal: item.quantityBottles * item.unitPrice,
     }));
     const totalAmount = lineItems.reduce((sum, i) => sum + i.lineTotal, 0);
 
-    // 3. Build one transaction: create Sale, create each SaleItem,
+    // 4. Build one transaction: create Sale, create each SaleItem,
     //    decrement Stock for each product — all succeed or all fail together
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.create({
@@ -64,6 +96,7 @@ class SaleService {
     return saleRepository.findByIdWithItems(result.id);
   }
 
+  // Returns null if sale not found (instead of throwing)
   async getSale(id) {
     return saleRepository.findByIdWithItems(id);
   }
