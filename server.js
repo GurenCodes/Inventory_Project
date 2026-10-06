@@ -2,6 +2,7 @@
 // Express server for the Floramagg Drinks Shop API layer
 // Stage 1: bare server with health check
 // Stage 2: auth login + JWT middleware
+// Stage 3: Product and Stock routes (all authenticated)
 
 require('dotenv').config();
 
@@ -9,6 +10,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 
 const authService = require('./UserManagement/Services/AuthService');
+const productService = require('./InventoryManagement/Services/ProductService');
+const stockService = require('./InventoryManagement/Services/StockService');
 
 const app = express();
 app.use(express.json());
@@ -84,6 +87,155 @@ function authenticateToken(req, res, next) {
     next();
   });
 }
+
+// ============================================
+// PRODUCT ROUTES (Stage 3) - ALL AUTHENTICATED
+// ============================================
+
+// GET /products - list products with optional category filter and includeInactive
+app.get('/products', authenticateToken, async (req, res) => {
+  try {
+    const { category, includeInactive } = req.query;
+    
+    // Convert query params
+    const categoryFilter = category || undefined;
+    const includeInactiveFlag = includeInactive === 'true';
+    
+    let products;
+    if (includeInactiveFlag) {
+      // listProducts doesn't support includeInactive, need to use listActiveProducts when false
+      // Actually listProducts returns all, listActiveProducts returns only active
+      // For includeInactive=true, we need all products
+      // The service has listProducts (all) and listActiveProducts (only active)
+      products = await productService.listProducts(categoryFilter);
+    } else {
+      // Default: only active products
+      products = await productService.listActiveProducts(categoryFilter);
+    }
+    
+    res.json(products);
+  } catch (err) {
+    console.error('GET /products error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /products - register a new product
+app.post('/products', authenticateToken, async (req, res) => {
+  try {
+    const { name, category, unitPrice, crateSize, reorderLevel } = req.body;
+    
+    const result = await productService.registerProduct({
+      name,
+      category,
+      unitPrice,
+      crateSize,
+      reorderLevel,
+    });
+    
+    res.status(201).json(result);
+  } catch (err) {
+    // Validation/business rule errors from Service
+    if (err.message.includes('required') || 
+        err.message.includes('must be') || 
+        err.message.includes('cannot be empty')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('POST /products error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /products/:id/discontinue - discontinue a product
+app.post('/products/:id/discontinue', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid product ID' });
+    }
+    
+    const result = await productService.discontinueProduct(id);
+    res.json(result);
+  } catch (err) {
+    if (err.message.includes('does not exist')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('required') || err.message.includes('must be')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('POST /products/:id/discontinue error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /products/:id/reactivate - reactivate a discontinued product
+app.post('/products/:id/reactivate', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid product ID' });
+    }
+    
+    const result = await productService.restoreProduct(id);
+    res.json(result);
+  } catch (err) {
+    if (err.message.includes('does not exist')) {
+      return res.status(404).json({ error: err.message });
+    }
+    if (err.message.includes('required') || err.message.includes('must be')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('POST /products/:id/reactivate error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// STOCK ROUTES (Stage 3) - ALL AUTHENTICATED
+// ============================================
+
+// GET /stock/low - list low stock products
+app.get('/stock/low', authenticateToken, async (req, res) => {
+  try {
+    const lowStock = await stockService.listLowStock();
+    res.json(lowStock);
+  } catch (err) {
+    console.error('GET /stock/low error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /stock/receive - receive a batch order (log delivery + update stock)
+// receivedById comes from authenticated user, NOT client
+app.post('/stock/receive', authenticateToken, async (req, res) => {
+  try {
+    const { productId, crateCount, bottleCount, costPerUnit, expiryDate } = req.body;
+    
+    // receivedById comes from the authenticated user's token
+    const receivedById = req.user.userId;
+    
+    const result = await stockService.receiveBatchOrder({
+      productId,
+      receivedById,
+      crateCount,
+      bottleCount,
+      costPerUnit,
+      expiryDate: expiryDate ? new Date(expiryDate) : undefined,
+    });
+    
+    res.status(201).json(result);
+  } catch (err) {
+    // Validation/business rule errors from Service
+    if (err.message.includes('required') || 
+        err.message.includes('must be') || 
+        err.message.includes('does not exist') ||
+        err.message.includes('greater than zero')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('POST /stock/receive error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Export middleware for use in future stages
 module.exports = { app, authenticateToken };
