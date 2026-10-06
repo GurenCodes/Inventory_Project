@@ -5,6 +5,7 @@ const saleRepository = require('../Repository/Sale');
 class ReportService {
   // Pulls every completed sale for the given date, sums the totals,
   // and saves that as a DailyReport row.
+  // All date boundaries use UTC to be consistent regardless of server timezone.
   async generateDailyReport({ date, generatedById }) {
     if (!date) {
       throw new Error('Report date is required');
@@ -28,11 +29,14 @@ class ReportService {
       throw new Error('Cannot generate report for a future date');
     }
 
+    // Use UTC for all date boundaries to be consistent regardless of server timezone.
+    // reportDate at UTC midnight
     const startOfDay = new Date(reportDate);
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setUTCHours(0, 0, 0, 0);
 
+    // End of day in UTC
     const endOfDay = new Date(reportDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     const sales = await saleRepository.findByDateRange(startOfDay, endOfDay);
     const completedSales = sales.filter((s) => s.status === 'completed');
@@ -42,11 +46,13 @@ class ReportService {
       0
     );
 
-    // reportDate is @unique in the schema, so this will fail if a report
-    // for this exact date already exists — decide whether to update
-    // instead if you re-run this for the same day.
+    // Store reportDate at UTC midnight (not local midnight)
+    // This ensures the unique constraint works correctly regardless of server timezone.
+    const reportDateAtMidnight = new Date(reportDate);
+    reportDateAtMidnight.setUTCHours(0, 0, 0, 0);
+
     return dailyReportRepository.create({
-      reportDate: startOfDay,
+      reportDate: reportDateAtMidnight,
       generatedById,
       totalSalesAmount,
     });
@@ -57,7 +63,7 @@ class ReportService {
     if (!date) return null;
     const day = new Date(date);
     if (isNaN(day.getTime())) return null;
-    day.setHours(0, 0, 0, 0);
+    day.setUTCHours(0, 0, 0, 0);
     return dailyReportRepository.findByDate(day);
   }
 
