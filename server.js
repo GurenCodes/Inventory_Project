@@ -13,6 +13,7 @@ const authService = require('./UserManagement/Services/AuthService');
 const productService = require('./InventoryManagement/Services/ProductService');
 const stockService = require('./InventoryManagement/Services/StockService');
 const saleService = require('./InventoryManagement/Services/SaleService');
+const reportService = require('./InventoryManagement/Services/ReportService');
 
 const app = express();
 app.use(express.json());
@@ -327,6 +328,88 @@ app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: `Sale ${id} not found` });
     }
     console.error('POST /sales/:id/cancel error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// REPORT ROUTES (Stage 5) - ALL AUTHENTICATED
+// ============================================
+
+// POST /reports/daily - generate a daily report
+// generatedById comes from authenticated user, NOT client
+app.post('/reports/daily', authenticateToken, async (req, res) => {
+  try {
+    const { date } = req.body;
+    
+    // generatedById comes from the authenticated user's token
+    const generatedById = req.user.userId;
+    
+    const result = await reportService.generateDailyReport({
+      date,
+      generatedById,
+    });
+    
+    res.status(201).json(result);
+  } catch (err) {
+    // Validation/business rule errors from Service
+    if (err.message.includes('required') || 
+        err.message.includes('Invalid date') ||
+        err.message.includes('future date')) {
+      return res.status(400).json({ error: err.message });
+    }
+    // Prisma unique constraint error (P2002) for duplicate reportDate
+    if (err.code === 'P2002') {
+      return res.status(400).json({ error: 'A report for this date already exists' });
+    }
+    console.error('POST /reports/daily error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /reports/:date - get a specific daily report by date
+app.get('/reports/:date', authenticateToken, async (req, res) => {
+  try {
+    const date = req.params.date;
+    
+    // Validate date format
+    const reportDate = new Date(date);
+    if (isNaN(reportDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+    
+    const report = await reportService.getReportByDate(date);
+    if (!report) {
+      return res.status(404).json({ error: `Report for ${date} not found` });
+    }
+    
+    res.json(report);
+  } catch (err) {
+    console.error('GET /reports/:date error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /reports - list reports with start and end date range (both required)
+app.get('/reports', authenticateToken, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    
+    if (!start || !end) {
+      return res.status(400).json({ error: 'Start and end dates are required' });
+    }
+    
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return res.status(400).json({ error: 'Invalid start or end date format' });
+    }
+    
+    const reports = await reportService.listReports(startDate, endDate);
+    res.json(reports);
+  } catch (err) {
+    console.error('GET /reports error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
