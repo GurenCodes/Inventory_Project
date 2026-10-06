@@ -183,6 +183,8 @@ table) ever disagreeing with each other.
 - "Today" is determined by the server's UTC calendar date (`new Date().toISOString().split('T')[0]`).
 This ensures identical behavior on a local machine (any timezone) and a UTC-hosted server.
 
+**Note:** Existing reports created before this fix were stored at local midnight (23:00:00Z for UTC+1). On 2026-10-06, all such rows were shifted forward by one hour to UTC midnight (00:00:00Z) in a single transaction, ensuring lookups by UTC date now work correctly.
+
 **User-facing expectation:** an end-of-day "close out" action an Admin/Manager runs
 once, producing a permanent daily total. A weekly/monthly view would query a *range*
 of DailyReports, not require a separate WeeklyReport/MonthlyReport entity.

@@ -119,8 +119,8 @@ async function main() {
   // 7. DailyReport (10, one per day going backward)
   for (let i = 0; i < 10; i++) {
     const date = new Date();
-    date.setDate(date.getDate() - i);
-    date.setHours(0, 0, 0, 0);
+    date.setUTCDate(date.getUTCDate() - i);
+    date.setUTCHours(0, 0, 0, 0);
 
     await prisma.dailyReport.create({
       data: {

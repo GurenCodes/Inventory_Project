@@ -1,7 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const reportService = require('../InventoryManagement/Services/ReportService');
-const saleService = require('../InventoryManagement/Services/SaleService');
 const productRepository = require('../InventoryManagement/Repository/Product');
 const stockRepository = require('../InventoryManagement/Repository/Stock');
 
@@ -33,6 +32,26 @@ async function cleanup() {
     await prisma.itemBatchOrder.deleteMany({ where: { productId: p.id } });
     await prisma.product.delete({ where: { id: p.id } });
   }
+  const testUsers = await prisma.user.findMany({
+    where: { email: { startsWith: TEST_PREFIX } },
+    select: { id: true },
+  });
+  for (const u of testUsers) {
+    await prisma.user.delete({ where: { id: u.id } });
+  }
+}
+
+async function createTestUser() {
+  const bcrypt = require('bcrypt');
+  const passwordHash = await bcrypt.hash('testpass', 10);
+  return prisma.user.create({
+    data: {
+      fullName: `${TEST_PREFIX}User${Date.now()}`,
+      email: `${TEST_PREFIX}user${Date.now()}@floramagg.com`,
+      passwordHash,
+      role: 'MANAGER',
+    },
+  });
 }
 
 async function createTestProduct(overrides = {}) {
@@ -56,6 +75,17 @@ async function runTests() {
   console.log('\n========== ReportService Tests ==========\n');
   const results = {};
 
+  let testProduct, testUser;
+  try {
+    testProduct = await createTestProduct();
+    testUser = await createTestUser();
+  } catch (e) {
+    console.log('Setup failed:', e.message);
+    await cleanup();
+    await prisma.$disconnect();
+    return;
+  }
+
   // ========== generateDailyReport ==========
   console.log('--- generateDailyReport() ---');
   results.generateDailyReport = {
@@ -67,33 +97,38 @@ async function runTests() {
     transactionIntegrity: 'N/A',
   };
 
-  let testProduct, testUser;
-  try {
-    testProduct = await createTestProduct();
-    testUser = await prisma.user.findFirst();
-    if (!testUser) throw new Error('No user found');
-  } catch (e) {
-    console.log('Setup failed:', e.message);
-  }
+  // Use a fixed past date that doesn't exist in DB
+  const testDate = new Date('2026-07-01T00:00:00.000Z');
 
-  // Use a fixed past date for valid tests (avoids timezone issues with "today")
-  const testDate = new Date('2026-08-15');
-  testDate.setHours(0, 0, 0, 0);
+  // Valid input - use testDate (clean up any existing report and sales first)
+  await prisma.dailyReport.deleteMany({ where: { reportDate: testDate } });
+  await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate, lt: new Date(testDate.getTime() + 86400000) } } } });
+  await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate, lt: new Date(testDate.getTime() + 86400000) } } });
 
-  // Create completed sales for testDate
+  // Create test sales for testDate
   try {
-    await saleService.completeSale({
-      soldById: testUser.id,
-      items: [{ productId: testProduct.id, quantityBottles: 10, unitPrice: 500 }],
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 5000,
+        status: 'completed',
+        createdAt: testDate,
+        items: {
+          create: {
+            productId: testProduct.id,
+            quantityBottles: 10,
+            unitPrice: 500,
+            lineTotal: 5000,
+          },
+        },
+      },
     });
-    // Create a pending sale (should not be counted)
     const pendingSale = await prisma.sale.create({
       data: { soldById: testUser.id, totalAmount: 1000, status: 'pending', createdAt: testDate },
     });
     await prisma.saleItem.create({
       data: { saleId: pendingSale.id, productId: testProduct.id, quantityBottles: 2, unitPrice: 500, lineTotal: 1000 },
     });
-    // Create a cancelled sale (should not be counted)
     const cancelledSale = await prisma.sale.create({
       data: { soldById: testUser.id, totalAmount: 500, status: 'cancelled', createdAt: testDate },
     });
@@ -104,15 +139,12 @@ async function runTests() {
     console.log('Setup sales failed:', e.message);
   }
 
-  // Valid input - use testDate (clean up any existing report first)
-  await prisma.dailyReport.deleteMany({ where: { reportDate: testDate } });
-  
   try {
     const res = await reportService.generateDailyReport({
       date: testDate,
       generatedById: testUser.id,
     });
-    if (res && res.id && res.totalSalesAmount === 5000) { // Only completed sale counted
+    if (res && res.id && Number(res.totalSalesAmount) === 5000) {
       results.generateDailyReport.validInput = true;
       console.log('✅ Valid input: PASS - Report generated with correct total');
     } else {
@@ -137,29 +169,44 @@ async function runTests() {
     }
   }
 
-  // Invalid values
-  const tomorrow = new Date(testDate);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  
+  // Invalid values - each test uses its own unique date to avoid unique constraint collisions
   const invalidTests = [
-    { name: 'nonExistentUser', data: { date: testDate, generatedById: 999999 } },
-    { name: 'futureDate', data: { date: tomorrow, generatedById: testUser.id } },
-    { name: 'invalidDate', data: { date: 'not-a-date', generatedById: testUser.id } },
+    { 
+      name: 'nonExistentUser', 
+      data: { date: new Date('2026-07-02T00:00:00.000Z'), generatedById: 999999 },
+      expectedError: 'Foreign key constraint' // Prisma foreign key error
+    },
+    { 
+      name: 'futureDate', 
+      data: { date: new Date('2099-01-01T00:00:00.000Z'), generatedById: testUser.id },
+      expectedError: 'future date'
+    },
+    { 
+      name: 'invalidDate', 
+      data: { date: 'not-a-date', generatedById: testUser.id },
+      expectedError: 'Invalid date'
+    },
   ];
   for (const test of invalidTests) {
     try {
       await reportService.generateDailyReport(test.data);
       results.generateDailyReport.invalidValues.push({ test: test.name, passed: false });
-      console.log(`❌ Invalid ${test.name}: FAIL - Should have thrown or handled`);
+      console.log(`❌ Invalid ${test.name}: FAIL - Should have thrown`);
     } catch (e) {
-      results.generateDailyReport.invalidValues.push({ test: test.name, passed: true });
-      console.log(`✅ Invalid ${test.name}: PASS - Threw "${e.message}"`);
+      const errorMsg = e.message || String(e);
+      if (errorMsg.includes(test.expectedError) || errorMsg.toLowerCase().includes(test.expectedError.toLowerCase())) {
+        results.generateDailyReport.invalidValues.push({ test: test.name, passed: true });
+        console.log(`✅ Invalid ${test.name}: PASS - Threw expected error: "${errorMsg}"`);
+      } else {
+        results.generateDailyReport.invalidValues.push({ test: test.name, passed: false });
+        console.log(`❌ Invalid ${test.name}: FAIL - Wrong error. Expected "${test.expectedError}", got "${errorMsg}"`);
+      }
     }
   }
 
   // REGRESSION TEST: Problem 1 - today is NOT rejected as future date
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
   await prisma.dailyReport.deleteMany({ where: { reportDate: today } });
   console.log('\n--- REGRESSION: Problem 1 (today accepted) ---');
   try {
@@ -167,10 +214,8 @@ async function runTests() {
       date: today,
       generatedById: testUser.id,
     });
-    // Should NOT throw "future date" error - today must be accepted
     if (res && res.id) {
       console.log('✅ Problem 1 fix: PASS - Today is accepted (not rejected as future)');
-      // Clean up
       await prisma.dailyReport.delete({ where: { id: res.id } });
     } else {
       console.log('❌ Problem 1 fix: FAIL -', res);
@@ -178,7 +223,7 @@ async function runTests() {
   } catch (e) {
     if (e.message.includes('future date')) {
       console.log('❌ Problem 1 fix: FAIL - Today rejected as future:', e.message);
-    } else if (e.message.includes('already exists')) {
+    } else if (e.message.includes('already exists') || e.message.includes('Unique')) {
       console.log('✅ Problem 1 fix: PASS - Today accepted (duplicate check passed)');
     } else {
       console.log('❌ Problem 1 fix: FAIL -', e.message);
@@ -186,18 +231,49 @@ async function runTests() {
   }
 
   // Business rule: only sums completed sales, not pending or cancelled
+  // Use a unique date
+  const yesterday = new Date('2026-07-03T00:00:00.000Z');
+  await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
+  await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } } });
+  await prisma.sale.deleteMany({ where: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } });
+
+  const testProductYesterday = await createTestProduct();
+  let yesterdaySalesCreated = false;
   try {
-    const yesterday = new Date(testDate);
-    yesterday.setDate(yesterday.getDate() - 1);
-    await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
-    
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 5000,
+        status: 'completed',
+        createdAt: yesterday,
+        items: { create: { productId: testProductYesterday.id, quantityBottles: 10, unitPrice: 500, lineTotal: 5000 } }
+      }
+    });
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 1000,
+        status: 'pending',
+        createdAt: yesterday,
+        items: { create: { productId: testProductYesterday.id, quantityBottles: 2, unitPrice: 500, lineTotal: 1000 } }
+      }
+    });
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 500,
+        status: 'cancelled',
+        createdAt: yesterday,
+        items: { create: { productId: testProductYesterday.id, quantityBottles: 1, unitPrice: 500, lineTotal: 500 } }
+      }
+    });
+    yesterdaySalesCreated = true;
+
     const res = await reportService.generateDailyReport({
       date: yesterday,
       generatedById: testUser.id,
     });
-    // Should only include the completed sale (10 * 500 = 5000)
-    // Not the pending (2 * 500 = 1000) or cancelled (1 * 500 = 500)
-    if (res.totalSalesAmount === 5000) {
+    if (Number(res.totalSalesAmount) === 5000) {
       results.generateDailyReport.businessRules = true;
       console.log('✅ Business rule (only completed): PASS - Total is 5000 (only completed)');
     } else {
@@ -205,67 +281,81 @@ async function runTests() {
     }
   } catch (e) {
     console.log('❌ Business rule: FAIL -', e.message);
+  } finally {
+    if (yesterdaySalesCreated) {
+      await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
+      await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } } });
+      await prisma.sale.deleteMany({ where: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } });
+    }
   }
 
   // REGRESSION TEST: Problem 2 - "completed only" verified by direct DB query
   console.log('\n--- REGRESSION: Problem 2 (completed only, DB verified) ---');
-  const testDate2 = new Date('2026-09-20');
-  testDate2.setHours(0, 0, 0, 0);
+  const testDate2 = new Date('2026-07-04T00:00:00.000Z');
   await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
   await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } } });
   await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } });
-  
-  // Create test sales with distinct totals
+
   const testProduct2 = await createTestProduct();
-  const completedSale = await prisma.sale.create({
-    data: {
-      soldById: testUser.id,
-      totalAmount: 500,
-      status: 'completed',
-      createdAt: testDate2,
-      items: { create: { productId: testProduct2.id, quantityBottles: 5, unitPrice: 100, lineTotal: 500 } }
+  let testDate2SalesCreated = false;
+  try {
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 500,
+        status: 'completed',
+        createdAt: testDate2,
+        items: { create: { productId: testProduct2.id, quantityBottles: 5, unitPrice: 100, lineTotal: 500 } }
+      }
+    });
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 2000,
+        status: 'pending',
+        createdAt: testDate2,
+        items: { create: { productId: testProduct2.id, quantityBottles: 20, unitPrice: 100, lineTotal: 2000 } }
+      }
+    });
+    await prisma.sale.create({
+      data: {
+        soldById: testUser.id,
+        totalAmount: 1000,
+        status: 'cancelled',
+        createdAt: testDate2,
+        items: { create: { productId: testProduct2.id, quantityBottles: 10, unitPrice: 100, lineTotal: 1000 } }
+      }
+    });
+    testDate2SalesCreated = true;
+
+    const sales = await prisma.sale.findMany({
+      where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } },
+      include: { items: true }
+    });
+    const completedSales = sales.filter(s => s.status === 'completed');
+    const totalCompleted = completedSales.reduce((sum, s) => sum + Number(s.totalAmount), 0);
+
+    if (totalCompleted === 500) {
+      console.log('✅ Problem 2 fix (DB verified): PASS - Only completed sales summed (500), not pending/cancelled');
+    } else {
+      console.log('❌ Problem 2 fix: FAIL - DB sum is', totalCompleted, 'expected 500');
     }
-  });
-  await prisma.sale.create({
-    data: {
-      soldById: testUser.id,
-      totalAmount: 2000, // Would change sum if included
-      status: 'pending',
-      createdAt: testDate2,
-      items: { create: { productId: testProduct2.id, quantityBottles: 20, unitPrice: 100, lineTotal: 2000 } }
+
+    await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
+    const res2 = await reportService.generateDailyReport({ date: testDate2, generatedById: testUser.id });
+    if (Number(res2.totalSalesAmount) === 500) {
+      console.log('✅ Problem 2 fix (API verified): PASS - Report totalSalesAmount = 500 (completed only)');
+    } else {
+      console.log('❌ Problem 2 fix: FAIL - Report total =', res2.totalSalesAmount);
     }
-  });
-  await prisma.sale.create({
-    data: {
-      soldById: testUser.id,
-      totalAmount: 1000, // Would change sum if included
-      status: 'cancelled',
-      createdAt: testDate2,
-      items: { create: { productId: testProduct2.id, quantityBottles: 10, unitPrice: 100, lineTotal: 1000 } }
+  } catch (e) {
+    console.log('❌ Problem 2 fix: FAIL -', e.message);
+  } finally {
+    if (testDate2SalesCreated) {
+      await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
+      await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } } });
+      await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } });
     }
-  });
-  
-  // Direct DB verification
-  const sales = await prisma.sale.findMany({
-    where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } },
-    include: { items: true }
-  });
-  const completedSales = sales.filter(s => s.status === 'completed');
-  const totalCompleted = completedSales.reduce((sum, s) => sum + Number(s.totalAmount), 0);
-  
-  if (totalCompleted === 500) {
-    console.log('✅ Problem 2 fix (DB verified): PASS - Only completed sales summed (500), not pending/cancelled');
-  } else {
-    console.log('❌ Problem 2 fix: FAIL - DB sum is', totalCompleted, 'expected 500');
-  }
-  
-  // Generate report and verify
-  await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
-  const res2 = await reportService.generateDailyReport({ date: testDate2, generatedById: testUser.id });
-  if (res2.totalSalesAmount === 500) {
-    console.log('✅ Problem 2 fix (API verified): PASS - Report totalSalesAmount = 500 (completed only)');
-  } else {
-    console.log('❌ Problem 2 fix: FAIL - Report total =', res2.totalSalesAmount);
   }
 
   // Business rule: unique reportDate - duplicate should fail
@@ -284,18 +374,16 @@ async function runTests() {
   }
 
   // Database state after call
+  const dayBeforeYesterday = new Date('2026-07-05T00:00:00.000Z');
+  await prisma.dailyReport.deleteMany({ where: { reportDate: dayBeforeYesterday } });
   try {
-    const dayBeforeYesterday = new Date(testDate);
-    dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
-    await prisma.dailyReport.deleteMany({ where: { reportDate: dayBeforeYesterday } });
-    
     const res = await reportService.generateDailyReport({
       date: dayBeforeYesterday,
       generatedById: testUser.id,
     });
     const dbReport = await prisma.dailyReport.findUnique({ where: { id: res.id } });
     if (dbReport && dbReport.reportDate.getTime() === dayBeforeYesterday.getTime() && 
-        dbReport.generatedById === testUser.id && dbReport.totalSalesAmount === 0) {
+        dbReport.generatedById === testUser.id && Number(dbReport.totalSalesAmount) === 0) {
       results.generateDailyReport.dbState = true;
       console.log('✅ Database state: PASS - Report persisted correctly');
     } else {
@@ -319,11 +407,11 @@ async function runTests() {
     transactionIntegrity: 'N/A',
   };
 
+  const pastDate = new Date();
+  pastDate.setUTCHours(0, 0, 0, 0);
+  pastDate.setUTCDate(pastDate.getUTCDate() - 5);
+  await prisma.dailyReport.deleteMany({ where: { reportDate: pastDate } });
   try {
-    const pastDate = new Date();
-    pastDate.setHours(0, 0, 0, 0);
-    pastDate.setDate(pastDate.getDate() - 5);
-    await prisma.dailyReport.deleteMany({ where: { reportDate: pastDate } });
     await reportService.generateDailyReport({ date: pastDate, generatedById: testUser.id });
     const res = await reportService.getReportByDate(pastDate);
     if (res && res.reportDate.getTime() === pastDate.getTime()) {
@@ -334,14 +422,16 @@ async function runTests() {
     }
   } catch (e) {
     console.log('❌ Valid input: FAIL -', e.message);
+  } finally {
+    await prisma.dailyReport.deleteMany({ where: { reportDate: pastDate } });
   }
 
   // Non-existent date should return null
+  const pastDateNoReport = new Date();
+  pastDateNoReport.setUTCHours(0, 0, 0, 0);
+  pastDateNoReport.setUTCDate(pastDateNoReport.getUTCDate() - 100);
+  await prisma.dailyReport.deleteMany({ where: { reportDate: pastDateNoReport } });
   try {
-    const pastDateNoReport = new Date();
-    pastDateNoReport.setHours(0, 0, 0, 0);
-    pastDateNoReport.setDate(pastDateNoReport.getDate() - 100);
-    await prisma.dailyReport.deleteMany({ where: { reportDate: pastDateNoReport } });
     const res = await reportService.getReportByDate(pastDateNoReport);
     if (res === null) {
       results.getReportByDate.invalidValues.push({ test: 'nonExistentDate', passed: true });
@@ -380,10 +470,10 @@ async function runTests() {
 
   try {
     const start = new Date();
-    start.setDate(start.getDate() - 10);
-    start.setHours(0, 0, 0, 0);
+    start.setUTCHours(0, 0, 0, 0);
+    start.setUTCDate(start.getUTCDate() - 10);
     const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    end.setUTCHours(23, 59, 59, 999);
     const res = await reportService.listReports(start, end);
     if (Array.isArray(res)) {
       results.listReports.invalidValues.push({ test: 'dateRangeFilter', passed: true });
@@ -399,6 +489,17 @@ async function runTests() {
 
   // Cleanup
   await cleanup();
+
+  // Verify no leftover test data
+  console.log('\n--- Leftover Test Data Check ---');
+  const leftoverReports = await prisma.dailyReport.count({ where: { generatedBy: { email: { startsWith: TEST_PREFIX } } } });
+  const leftoverSales = await prisma.sale.count({ where: { soldBy: { email: { startsWith: TEST_PREFIX } } } });
+  const leftoverSaleItems = await prisma.saleItem.count({ where: { sale: { soldBy: { email: { startsWith: TEST_PREFIX } } } } });
+  const leftoverProducts = await prisma.product.count({ where: { name: { startsWith: TEST_PREFIX } } });
+  console.log(`Leftover DailyReports: ${leftoverReports}`);
+  console.log(`Leftover Sales: ${leftoverSales}`);
+  console.log(`Leftover SaleItems: ${leftoverSaleItems}`);
+  console.log(`Leftover Products: ${leftoverProducts}`);
 
   // Summary
   console.log('\n========== ReportService Summary ==========');
@@ -423,4 +524,8 @@ async function runTests() {
   return results;
 }
 
-runTests().catch(console.error);
+runTests().catch(async (e) => {
+  console.error('Test runner crashed:', e);
+  await cleanup();
+  await prisma.$disconnect();
+});
