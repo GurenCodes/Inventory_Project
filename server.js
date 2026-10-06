@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 const authService = require('./UserManagement/Services/AuthService');
 const productService = require('./InventoryManagement/Services/ProductService');
 const stockService = require('./InventoryManagement/Services/StockService');
+const saleService = require('./InventoryManagement/Services/SaleService');
 
 const app = express();
 app.use(express.json());
@@ -233,6 +234,99 @@ app.post('/stock/receive', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     console.error('POST /stock/receive error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// SALE ROUTES (Stage 4) - ALL AUTHENTICATED
+// ============================================
+
+// POST /sales - complete a sale (checkout)
+// soldById comes from authenticated user, NOT client
+app.post('/sales', authenticateToken, async (req, res) => {
+  try {
+    const { items } = req.body;
+    
+    // soldById comes from the authenticated user's token
+    const soldById = req.user.userId;
+    
+    const result = await saleService.completeSale({
+      soldById,
+      items,
+    });
+    
+    res.status(201).json(result);
+  } catch (err) {
+    // Validation/business rule errors from Service
+    if (err.message.includes('required') || 
+        err.message.includes('must be') || 
+        err.message.includes('does not exist') ||
+        err.message.includes('discontinued') ||
+        err.message.includes('Not enough stock') ||
+        err.message.includes('at least one item') ||
+        err.message.includes('productId') ||
+        err.message.includes('quantityBottles') ||
+        err.message.includes('unitPrice')) {
+      return res.status(400).json({ error: err.message });
+    }
+    console.error('POST /sales error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /sales - list sales with optional status filter
+app.get('/sales', authenticateToken, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const sales = await saleService.listSales(status);
+    res.json(sales);
+  } catch (err) {
+    console.error('GET /sales error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /sales/:id - get a specific sale by ID
+app.get('/sales/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid sale ID' });
+    }
+    
+    const sale = await saleService.getSale(id);
+    if (!sale) {
+      return res.status(404).json({ error: `Sale ${id} not found` });
+    }
+    
+    res.json(sale);
+  } catch (err) {
+    console.error('GET /sales/:id error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /sales/:id/cancel - cancel a sale
+app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    return res.status(400).json({ error: 'Invalid sale ID' });
+  }
+  
+  try {
+    const result = await saleService.cancelSale(id);
+    if (!result) {
+      return res.status(404).json({ error: `Sale ${id} not found` });
+    }
+    
+    res.json(result);
+  } catch (err) {
+    // Prisma throws P2025 when record not found
+    if (err.code === 'P2025' || err.message.includes('not found') || err.message.includes('Record to update not found')) {
+      return res.status(404).json({ error: `Sale ${id} not found` });
+    }
+    console.error('POST /sales/:id/cancel error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
