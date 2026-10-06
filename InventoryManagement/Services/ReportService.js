@@ -18,11 +18,13 @@ class ReportService {
       throw new Error('Invalid date provided');
     }
 
-    // Prevent generating reports for future dates
-    const now = new Date();
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    if (reportDate > todayStart) {
+    // Prevent generating reports for future dates.
+    // Compare calendar dates (YYYY-MM-DD) in UTC to avoid timezone issues.
+    // Date strings like "2026-10-06" parse as UTC midnight, so we extract
+    // the UTC date portion for both dates and compare as strings.
+    const reportDateUTC = reportDate.toISOString().split('T')[0]; // "YYYY-MM-DD" in UTC
+    const todayUTC = new Date().toISOString().split('T')[0];       // "YYYY-MM-DD" in UTC
+    if (reportDateUTC > todayUTC) {
       throw new Error('Cannot generate report for a future date');
     }
 

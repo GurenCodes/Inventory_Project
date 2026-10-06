@@ -260,6 +260,7 @@ too.
   others fail.
 - **ReportService.generateDailyReport()** — pulls all Sales for a given date with
   `status: 'completed'`, sums `totalAmount`, saves as one DailyReport row.
+  Accepts today's date (not rejected as future). "Today" is determined by the server's UTC calendar date (`new Date().toISOString().split('T')[0]`), so it works consistently regardless of the server's timezone.
 - **AuthService.login()** — checks email/password using `bcrypt.compare()` against the stored hash, returns the user object with `passwordHash` stripped out.
 - **AuthService.requireAdmin() / isAdmin() / isManager()** — role-check helpers, designed to be called at the start of any service function that should be restricted — not yet applied to every function that should use them (see Section 8).
 - **UserService.createUser()** — creates a new user with password securely hashed via bcrypt (salt rounds = 10). Handles email normalization (lowercase), validation, and duplicate detection.
