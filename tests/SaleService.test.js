@@ -85,7 +85,7 @@ async function runTests() {
     // Cleanup
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Valid input: FAIL -', e.message);
   }
@@ -104,8 +104,8 @@ async function runTests() {
     }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
-    await stockRepository.update(testProduct2.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct2.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Valid input (multiple): FAIL -', e.message);
   }
@@ -172,7 +172,7 @@ async function runTests() {
 
   // Business rule: insufficient stock
   try {
-    await stockRepository.update(testProduct.id, { quantityBottles: 2 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 2 });
     await saleService.completeSale({
       soldById: testUser.id,
       items: [{ productId: testProduct.id, quantityBottles: 5, unitPrice: 500 }],
@@ -188,12 +188,12 @@ async function runTests() {
       console.log('❌ Business rule: FAIL - Wrong error:', e.message);
     }
   }
-  await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+  await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
 
   // Business rule: multiple items, one out of stock should fail entire sale
   try {
-    await stockRepository.update(testProduct.id, { quantityBottles: 2 });
-    await stockRepository.update(testProduct2.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 2 });
+    await stockRepository.updateByProductId(testProduct2.id, { quantityBottles: 100 });
     await saleService.completeSale({
       soldById: testUser.id,
       items: [
@@ -218,7 +218,7 @@ async function runTests() {
       console.log('❌ Business rule: FAIL - Wrong error:', e.message);
     }
   }
-  await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+  await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
 
   // Business rule: discontinued product cannot be sold
   try {
@@ -245,7 +245,7 @@ async function runTests() {
 
   // Database state after successful call
   try {
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
     const res = await saleService.completeSale({
       soldById: testUser.id,
       items: [{ productId: testProduct.id, quantityBottles: 10, unitPrice: 500 }],
@@ -263,7 +263,7 @@ async function runTests() {
     }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Database state: FAIL -', e.message);
   }
@@ -327,7 +327,7 @@ async function runTests() {
     }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Valid input: FAIL -', e.message);
   }
@@ -409,7 +409,7 @@ async function runTests() {
     }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Valid input: FAIL -', e.message);
   }
@@ -448,7 +448,7 @@ async function runTests() {
     }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
-    await stockRepository.update(testProduct.id, { quantityBottles: 100 });
+    await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
   } catch (e) {
     console.log('❌ Business rule test error:', e.message);
   }

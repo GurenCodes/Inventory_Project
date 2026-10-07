@@ -32,6 +32,14 @@ class StockRepository {
     });
   }
 
+  // Update stock by productId (since Stock has a unique productId)
+  async updateByProductId(productId, data) {
+    return prisma.stock.update({
+      where: { productId },
+      data,
+    });
+  }
+
   // Increase bottle count (e.g. after a batch order arrives)
   async incrementBottles(productId, amount) {
     return prisma.stock.update({
