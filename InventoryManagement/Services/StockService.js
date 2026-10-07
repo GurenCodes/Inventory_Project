@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const stockRepository = require('../Repository/Stock');
 const itemBatchOrderRepository = require('../Repository/ItemBatchOrder');
 const productRepository = require('../Repository/Product');
+const userRepository = require('../../UserManagement/Repository/UserRepository');
 const { ValidationError, NotFoundError } = require('../../errors');
 
 class StockService {
@@ -18,6 +19,13 @@ class StockService {
     if (receivedById === undefined || receivedById === null) {
       throw new ValidationError('Received by user ID is required');
     }
+
+    // Validate that the user exists
+    const user = await userRepository.findById(receivedById);
+    if (!user) {
+      throw new NotFoundError(`User ${receivedById} does not exist`);
+    }
+
     if (costPerUnit === undefined || costPerUnit === null) {
       throw new ValidationError('Cost per unit is required');
     }

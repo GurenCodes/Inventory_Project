@@ -83,6 +83,9 @@ class ProductService {
   // Marks a product as discontinued (isActive = false) instead of deleting.
   // This preserves sales, stock, and delivery history.
   async discontinueProduct(id) {
+    if (id === undefined || id === null || typeof id !== 'number' || isNaN(id)) {
+      throw new ValidationError('Product ID is required');
+    }
     const product = await productRepository.findById(id);
     if (!product) {
       throw new NotFoundError(`Product ${id} does not exist`);

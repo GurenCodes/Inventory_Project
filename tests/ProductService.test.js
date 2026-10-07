@@ -3,6 +3,7 @@ const prisma = new PrismaClient();
 const productService = require('../InventoryManagement/Services/ProductService');
 const productRepository = require('../InventoryManagement/Repository/Product');
 const stockRepository = require('../InventoryManagement/Repository/Stock');
+const { ValidationError, NotFoundError } = require('../errors');
 
 const TEST_PREFIX = 'TEST_';
 
@@ -354,8 +355,13 @@ async function runTests() {
     results.discontinueProduct.missingFields.push({ field: 'id', passed: false });
     console.log('❌ Missing ID: FAIL');
   } catch (e) {
-    results.discontinueProduct.missingFields.push({ field: 'id', passed: true });
-    console.log(`✅ Missing ID: PASS - Threw "${e.message}"`);
+    if (e instanceof ValidationError && e.message === 'Product ID is required') {
+      results.discontinueProduct.missingFields.push({ field: 'id', passed: true });
+      console.log(`✅ Missing ID: PASS - Threw ValidationError: "${e.message}"`);
+    } else {
+      results.discontinueProduct.missingFields.push({ field: 'id', passed: false });
+      console.log(`❌ Missing ID: FAIL - Wrong error type or message: "${e.message}"`);
+    }
   }
 
   // Invalid ID (non-existent)
@@ -364,8 +370,13 @@ async function runTests() {
     results.discontinueProduct.invalidValues.push({ test: 'nonExistentId', passed: false });
     console.log('❌ Non-existent ID: FAIL - Should throw');
   } catch (e) {
-    results.discontinueProduct.invalidValues.push({ test: 'nonExistentId', passed: true });
-    console.log(`✅ Non-existent ID: PASS - Threw "${e.message}"`);
+    if (e instanceof NotFoundError && e.message === 'Product 999999 does not exist') {
+      results.discontinueProduct.invalidValues.push({ test: 'nonExistentId', passed: true });
+      console.log(`✅ Non-existent ID: PASS - Threw NotFoundError: "${e.message}"`);
+    } else {
+      results.discontinueProduct.invalidValues.push({ test: 'nonExistentId', passed: false });
+      console.log(`❌ Non-existent ID: FAIL - Wrong error type or message: "${e.message}"`);
+    }
   }
 
   // Business rule: preserves history (stock, sale items, batch orders still exist)

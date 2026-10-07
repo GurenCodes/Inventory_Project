@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const saleRepository = require('../Repository/Sale');
 const stockRepository = require('../Repository/Stock');
 const productRepository = require('../Repository/Product');
+const userRepository = require('../../UserManagement/Repository/UserRepository');
 const { ValidationError, NotFoundError } = require('../../errors');
 
 class SaleService {
@@ -17,6 +18,12 @@ class SaleService {
     }
     if (!soldById) {
       throw new ValidationError('Sold by user ID is required');
+    }
+
+    // Validate that the user exists
+    const user = await userRepository.findById(soldById);
+    if (!user) {
+      throw new NotFoundError(`User ${soldById} does not exist`);
     }
 
     // 1. Validate all items first
@@ -109,7 +116,14 @@ class SaleService {
   async cancelSale(id) {
     // Marks pending as cancelled; does not restock (sale never completed,
     // so stock was never decremented in the first place).
-    return saleRepository.updateStatus(id, 'cancelled');
+    try {
+      return await saleRepository.updateStatus(id, 'cancelled');
+    } catch (e) {
+      if (e.code === 'P2025') {
+        throw new NotFoundError(`Sale ${id} does not exist`);
+      }
+      throw e;
+    }
   }
 }
 

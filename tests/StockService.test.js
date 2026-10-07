@@ -4,6 +4,7 @@ const stockService = require('../InventoryManagement/Services/StockService');
 const productRepository = require('../InventoryManagement/Repository/Product');
 const stockRepository = require('../InventoryManagement/Repository/Stock');
 const itemBatchOrderRepository = require('../InventoryManagement/Repository/ItemBatchOrder');
+const { ValidationError, NotFoundError } = require('../errors');
 
 const TEST_PREFIX = 'TEST_';
 
@@ -106,12 +107,12 @@ async function runTests() {
 
   // Invalid values
   const invalidTests = [
-    { name: 'nonExistentProduct', data: { productId: 999999, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: 400 } },
-    { name: 'nonExistentUser', data: { productId: testProduct.id, receivedById: 999999, crateCount: 1, bottleCount: 0, costPerUnit: 400 } },
-    { name: 'negativeCrateCount', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: -1, bottleCount: 0, costPerUnit: 400 } },
-    { name: 'negativeBottleCount', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 0, bottleCount: -5, costPerUnit: 400 } },
-    { name: 'negativeCost', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: -100 } },
-    { name: 'zeroCost', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: 0 } },
+    { name: 'nonExistentProduct', data: { productId: 999999, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: 400 }, expectedError: 'Product 999999 does not exist' },
+    { name: 'nonExistentUser', data: { productId: testProduct.id, receivedById: 999999, crateCount: 1, bottleCount: 0, costPerUnit: 400 }, expectedError: 'User 999999 does not exist' },
+    { name: 'negativeCrateCount', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: -1, bottleCount: 0, costPerUnit: 400 }, expectedError: 'Crate count must be a non-negative number' },
+    { name: 'negativeBottleCount', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 0, bottleCount: -5, costPerUnit: 400 }, expectedError: 'Bottle count must be a non-negative number' },
+    { name: 'negativeCost', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: -100 }, expectedError: 'Cost per unit must be a positive number' },
+    { name: 'zeroCost', data: { productId: testProduct.id, receivedById: testUser.id, crateCount: 1, bottleCount: 0, costPerUnit: 0 }, expectedError: 'Cost per unit must be a positive number' },
   ];
   for (const test of invalidTests) {
     try {
@@ -119,8 +120,14 @@ async function runTests() {
       results.receiveBatchOrder.invalidValues.push({ test: test.name, passed: false });
       console.log(`❌ Invalid ${test.name}: FAIL - Should have thrown`);
     } catch (e) {
-      results.receiveBatchOrder.invalidValues.push({ test: test.name, passed: true });
-      console.log(`✅ Invalid ${test.name}: PASS - Threw "${e.message}"`);
+      const errorMsg = e.message || String(e);
+      if (errorMsg.includes(test.expectedError)) {
+        results.receiveBatchOrder.invalidValues.push({ test: test.name, passed: true });
+        console.log(`✅ Invalid ${test.name}: PASS - Threw expected error: "${errorMsg}"`);
+      } else {
+        results.receiveBatchOrder.invalidValues.push({ test: test.name, passed: false });
+        console.log(`❌ Invalid ${test.name}: FAIL - Wrong error. Expected "${test.expectedError}", got "${errorMsg}"`);
+      }
     }
   }
 

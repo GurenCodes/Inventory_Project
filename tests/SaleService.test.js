@@ -4,6 +4,7 @@ const saleService = require('../InventoryManagement/Services/SaleService');
 const productRepository = require('../InventoryManagement/Repository/Product');
 const stockRepository = require('../InventoryManagement/Repository/Stock');
 const saleRepository = require('../InventoryManagement/Repository/Sale');
+const { ValidationError, NotFoundError } = require('../errors');
 
 const TEST_PREFIX = 'TEST_';
 
@@ -152,12 +153,12 @@ async function runTests() {
 
   // Invalid values
   const invalidTests = [
-    { name: 'nonExistentProduct', data: { soldById: testUser.id, items: [{ productId: 999999, quantityBottles: 1, unitPrice: 500 }] } },
-    { name: 'nonExistentUser', data: { soldById: 999999, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: 500 }] } },
-    { name: 'negativeQuantity', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: -5, unitPrice: 500 }] } },
-    { name: 'zeroQuantity', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 0, unitPrice: 500 }] } },
-    { name: 'negativePrice', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: -100 }] } },
-    { name: 'zeroPrice', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: 0 }] } },
+    { name: 'nonExistentProduct', data: { soldById: testUser.id, items: [{ productId: 999999, quantityBottles: 1, unitPrice: 500 }] }, expectedError: 'Product 999999 does not exist' },
+    { name: 'nonExistentUser', data: { soldById: 999999, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: 500 }] }, expectedError: 'User 999999 does not exist' },
+    { name: 'negativeQuantity', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: -5, unitPrice: 500 }] }, expectedError: 'Quantity must be a positive number' },
+    { name: 'zeroQuantity', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 0, unitPrice: 500 }] }, expectedError: 'Quantity must be a positive number' },
+    { name: 'negativePrice', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: -100 }] }, expectedError: 'Unit price must be a positive number' },
+    { name: 'zeroPrice', data: { soldById: testUser.id, items: [{ productId: testProduct.id, quantityBottles: 1, unitPrice: 0 }] }, expectedError: 'Unit price must be a positive number' },
   ];
   for (const test of invalidTests) {
     try {
@@ -165,8 +166,14 @@ async function runTests() {
       results.completeSale.invalidValues.push({ test: test.name, passed: false });
       console.log(`❌ Invalid ${test.name}: FAIL - Should have thrown`);
     } catch (e) {
-      results.completeSale.invalidValues.push({ test: test.name, passed: true });
-      console.log(`✅ Invalid ${test.name}: PASS - Threw "${e.message}"`);
+      const errorMsg = e.message || String(e);
+      if (errorMsg.includes(test.expectedError)) {
+        results.completeSale.invalidValues.push({ test: test.name, passed: true });
+        console.log(`✅ Invalid ${test.name}: PASS - Threw expected error: "${errorMsg}"`);
+      } else {
+        results.completeSale.invalidValues.push({ test: test.name, passed: false });
+        console.log(`❌ Invalid ${test.name}: FAIL - Wrong error. Expected "${test.expectedError}", got "${errorMsg}"`);
+      }
     }
   }
 
@@ -419,8 +426,13 @@ async function runTests() {
     results.cancelSale.invalidValues.push({ test: 'nonExistentId', passed: false });
     console.log('❌ Non-existent ID: FAIL - Should throw');
   } catch (e) {
-    results.cancelSale.invalidValues.push({ test: 'nonExistentId', passed: true });
-    console.log(`✅ Non-existent ID: PASS - Threw "${e.message}"`);
+    if (e instanceof NotFoundError && e.message === 'Sale 999999 does not exist') {
+      results.cancelSale.invalidValues.push({ test: 'nonExistentId', passed: true });
+      console.log(`✅ Non-existent ID: PASS - Threw NotFoundError: "${e.message}"`);
+    } else {
+      results.cancelSale.invalidValues.push({ test: 'nonExistentId', passed: false });
+      console.log(`❌ Non-existent ID: FAIL - Wrong error type or message: "${e.message}"`);
+    }
   }
 
   // Business rule: does not restock (sale was completed, stock already decremented)

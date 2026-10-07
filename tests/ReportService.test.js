@@ -3,6 +3,7 @@ const prisma = new PrismaClient();
 const reportService = require('../InventoryManagement/Services/ReportService');
 const productRepository = require('../InventoryManagement/Repository/Product');
 const stockRepository = require('../InventoryManagement/Repository/Stock');
+const { ValidationError, NotFoundError } = require('../errors');
 
 const TEST_PREFIX = 'TEST_';
 
@@ -174,7 +175,7 @@ async function runTests() {
     { 
       name: 'nonExistentUser', 
       data: { date: new Date('2026-07-02T00:00:00.000Z'), generatedById: 999999 },
-      expectedError: 'Foreign key constraint' // Prisma foreign key error
+      expectedError: 'User 999999 does not exist'
     },
     { 
       name: 'futureDate', 
