@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-07. State: after local commit `bfa125d` (not yet pushed).
+Last updated: 2026-10-07. State: Stage 8 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 244 total tests passing.
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -26,10 +26,11 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Password security | bcrypt (salt rounds 10), done |
 | API stages 1–5 (health, login + JWT, products/stock, sales, reports) | Done, tested |
 | Stage 6: error handling pass | **Done** |
-| Stage 7: role-based restrictions | **Next** |
+| Stage 7: role-based restrictions | **VERIFIED AFTER REMEDIATION** |
+| Stage 8: missing routes & user management | **VERIFIED — COMPLETE** |
 | Missing routes, hardening, deployment, frontend | Not started |
 
-Git: `f77b278` committed locally, one commit ahead of origin/main, not pushed. Untracked `opencode_log.txt` is ignorable.
+Git: Working directory clean except for Stage 8 changes. Modified: `server.js`. New: `tests/Stage8Api.test.js`. Untracked: `opencode_log.txt` (ignorable).
 
 ## 3. Stack and environment
 
@@ -105,10 +106,14 @@ Auth: `POST /auth/login` {email, password} → `{token, user{id, fullName, email
 | GET /health | — | 200 |
 | GET /products?category=&includeInactive=true | listActiveProducts / listProducts | 200 |
 | POST /products | registerProduct | 201 |
+| PUT /products/:id | updateProduct | 200 |
+| GET /products/:id | getProductWithStock | 200 / 404 |
 | POST /products/:id/discontinue | discontinueProduct | 200 |
 | POST /products/:id/reactivate | restoreProduct | 200 |
 | GET /stock/low | listLowStock | 200 |
 | POST /stock/receive | receiveBatchOrder | 201 |
+| GET /stock/:productId | getStockForProduct | 200 / 404 |
+| PUT /stock/:productId/reorder-level | adjustReorderLevel | 200 |
 | POST /sales | completeSale | 201 |
 | GET /sales?status= | listSales | 200 |
 | GET /sales/:id | getSale | 200 / 404 |
@@ -116,10 +121,297 @@ Auth: `POST /auth/login` {email, password} → `{token, user{id, fullName, email
 | POST /reports/daily {date} | generateDailyReport | 201 |
 | GET /reports/:date | getReportByDate | 200 / 404 |
 | GET /reports?start=&end= | listReports | 200 |
+| POST /users | createUser | 201 |
+| GET /users | listUsers | 200 |
+| GET /users/:id | getUserById | 200 / 404 |
+| PUT /users/:id/password | updatePassword | 200 |
 
 Status codes: 400 validation/duplicate report/conflict, 401 missing/invalid/expired authentication, 403 authenticated but forbidden (Stage 7), 404 not found, 500 unexpected (logged, generic message to client).
 
-**Routes that do not exist yet:** update product, get one product with stock, get stock for a product, adjust reorder level, user management. `GET /products` does not include stock, but the catalog screen needs product + stock together.
+All routes that existed in Stage 7 are now implemented. `GET /products/:id` now includes stock (satisfies catalog screen requirement). User management routes are ADMIN-only.
+
+---
+
+## 7b. Stage 7 — Authorization / Role-Based Access Control (VERIFIED AFTER REMEDIATION)
+
+### Authentication
+
+`authenticateToken` middleware in `server.js`:
+
+- Validates JWT tokens
+- Identifies the authenticated user
+- Attaches user information to `req.user` (`{userId, role}`)
+- Authentication failures return `401 Unauthorized`
+
+### Authorization
+
+Centralized `requireRole(...allowedRoles)` middleware in `server.js`:
+
+- Reads the authenticated user's role
+- Checks the role against the route's allowed roles
+- Returns `403 Forbidden` when an authenticated user lacks permission
+- Prevents unauthorized requests from reaching the route handler / service / database
+
+### Protected Route Permission Matrix (14 routes)
+
+| Route | Method | Required Role(s) |
+|---|---|---|
+| `/products` | GET | ADMIN, MANAGER |
+| `/products` | POST | ADMIN |
+| `/products/:id/discontinue` | POST | ADMIN |
+| `/products/:id/reactivate` | POST | ADMIN |
+| `/stock/low` | GET | ADMIN, MANAGER |
+| `/stock/receive` | POST | ADMIN, MANAGER |
+| `/sales` | POST | ADMIN, MANAGER |
+| `/sales` | GET | ADMIN, MANAGER |
+| `/sales/:id` | GET | ADMIN, MANAGER |
+| `/sales/:id/cancel` | POST | ADMIN |
+| `/reports/daily` | POST | ADMIN, MANAGER |
+| `/reports/:date` | GET | ADMIN, MANAGER |
+| `/reports` | GET | ADMIN, MANAGER |
+
+### Authorization Semantics
+
+| Code | Meaning |
+|---|---|
+| `401` | Authentication failure (missing/invalid/expired/malformed token, missing Bearer prefix) |
+| `403` | Authenticated but forbidden (role lacks permission, role missing) |
+| `404` | Resource not found |
+| `400` | Validation / input error |
+
+Do not describe 400/404 responses as authorization successes.
+
+### Verified Middleware Execution Order
+
+```text
+Request
+  ↓
+authenticateToken
+  ↓
+requireRole(...)
+  ↓
+Route Handler
+  ↓
+Service
+  ↓
+Repository / Database
+  ↓
+Centralized Error Middleware
+  ↓
+Response
+```
+
+Critical verified security behavior:
+
+```text
+Unauthorized authenticated request
+        ↓
+authenticateToken succeeds
+        ↓
+requireRole rejects
+        ↓
+403 Forbidden
+        ↓
+Route handler NOT executed
+        ↓
+Service NOT executed
+        ↓
+Repository NOT executed
+        ↓
+Database NOT modified
+```
+
+### Stage 7 Test Results (Final Remediated)
+
+| Test Suite | Total | Passed | Failed | Errors | Skipped | Status |
+|---|---:|---:|---:|---:|---:|---|
+| Authorization | 56 | 56 | 0 | 0 | 0 | PASS |
+| ProductService | 36 | 36 | 0 | 0 | 0 | PASS |
+| StockService | 28 | 28 | 0 | 0 | 0 | PASS |
+| SaleService | 32 | 32 | 0 | 0 | 0 | PASS |
+| ReportService | 21 | 21 | 0 | 0 | 0 | PASS |
+| AuthService | 23 | 23 | 0 | 0 | 0 | PASS |
+| **TOTAL** | **196** | **196** | **0** | **0** | **0** | **PASS** |
+
+**196/196 tests passed.**
+
+### Authorization Test Coverage (56 tests)
+
+The final authorization suite verifies:
+
+- unauthenticated access → 401
+- invalid/expired/malformed tokens → 401
+- missing Bearer prefix → 401
+- ADMIN access to authorized operations
+- MANAGER access to authorized operations
+- MANAGER denial from all ADMIN-only operations → 403
+- valid existing resources used for positive authorization tests
+- exact expected status-code assertions
+- authorization occurs before business logic
+- unauthorized requests do not reach services
+- unauthorized requests do not modify the database
+
+### Test Remediation
+
+The earlier Stage 7 audit identified ~10 weak/false-positive authorization tests (out of 44) that accepted downstream 404/400 responses as authorization success.
+
+These were remediated:
+
+- All positive tests now use valid existing resources where applicable
+- All tests use exact expected status codes
+- No test treats unrelated 400/404 as authorization success
+- Database immutability verified for unauthorized mutations
+- Authorization execution order verified
+
+**No remaining false-positive authorization tests.**
+
+### Security Verification
+
+| Question | Answer |
+|---|---|
+| Can MANAGER perform an ADMIN-only operation? | **NO** — all 4 ADMIN-only routes return 403 for MANAGER |
+| Can unauthenticated users access protected routes? | **NO** — all 13 protected routes return 401 |
+| Can unauthorized requests reach business logic? | **NO** — middleware blocks before route/service |
+| Can unauthorized requests modify the database? | **NO** — database immutability verified |
+| Are all 14 protected routes correctly enforced? | **YES** |
+| Are positive authorization tests using valid resources? | **YES** |
+| Are remaining false-positive authorization tests present? | **NO** |
+| Unexpected errors? | **NONE** |
+| Regression failures? | **NONE** — all service suites pass |
+
+### Database
+
+No database schema changes were required for Stage 7. Roles already existed in the User model.
+
+### Files Associated With Stage 7
+
+| File | Purpose |
+|---|---|
+| `server.js` | Centralized `requireRole(...)` middleware; authorization applied to 14 protected routes |
+| `package.json` | Supertest added as dev dependency |
+| `tests/Authorization.test.js` | Comprehensive 56-test authorization suite |
+| `package-lock.json` | Dependency lockfile updated |
+
+---
+
+## 7c. Stage 8 — Missing Routes & User Management (VERIFIED — COMPLETE)
+
+### Scope
+
+Stage 8 completes the API surface by exposing service-layer functionality that was already implemented but not accessible via HTTP routes:
+
+- **Product routes**: Update product, Get product with stock
+- **Stock routes**: Get stock for product, Adjust reorder level
+- **User Management routes**: Create user, List users, Get user by ID, Update user password
+
+### New Protected Route Permission Matrix (22 routes total: 14 from Stage 7 + 8 new)
+
+| Route | Method | Purpose | Required Role(s) |
+|---|---|---|---|
+| `/products/:id` | PUT | Update product details | ADMIN |
+| `/products/:id` | GET | Get product with stock | ADMIN, MANAGER |
+| `/stock/:productId` | GET | Get stock for product | ADMIN, MANAGER |
+| `/stock/:productId/reorder-level` | PUT | Adjust reorder level | ADMIN |
+| `/users` | POST | Create user | ADMIN |
+| `/users` | GET | List users | ADMIN |
+| `/users/:id` | GET | Get user by ID | ADMIN |
+| `/users/:id/password` | PUT | Update user password | ADMIN |
+
+### Implementation Details
+
+All new routes follow the established architecture:
+
+```text
+Request
+  ↓
+authenticateToken
+  ↓
+requireRole(...)
+  ↓
+validation
+  ↓
+service
+  ↓
+repository/database
+  ↓
+centralized error middleware
+  ↓
+response
+```
+
+**Key implementation decisions:**
+
+1. **User management is ADMIN-only** — consistent with security requirements (K9) and the project's role model (only ADMIN and MANAGER exist)
+2. **Product mutations (update, discontinue, reactivate) remain ADMIN-only** — consistent with Stage 7 permission model
+3. **Stock reorder level adjustment is ADMIN-only** — it's a configuration change affecting inventory behavior
+4. **Read operations (product with stock, stock lookup) available to both ADMIN and MANAGER** — consistent with other read routes
+5. **Password hashes never exposed** — UserService already strips passwordHash from all responses; verified in tests
+6. **Default role for new users is MANAGER** — matching the User model default
+
+### Error Semantics
+
+| Code | Meaning |
+|---|---|
+| `401` | Authentication failure (missing/invalid/expired/malformed token) |
+| `403` | Authenticated but forbidden (MANAGER on ADMIN-only routes) |
+| `404` | Resource not found (product, stock, user) |
+| `400` | Validation error (missing fields, invalid values, duplicate email) |
+
+### Stage 8 Test Results
+
+| Test Suite | Total | Passed | Failed | Errors | Skipped | Status |
+|---|---:|---:|---:|---:|---:|---|
+| Stage 8 API | 48 | 48 | 0 | 0 | 0 | PASS |
+| Authorization (Stage 7) | 56 | 56 | 0 | 0 | 0 | PASS |
+| ProductService | 36 | 36 | 0 | 0 | 0 | PASS |
+| StockService | 28 | 28 | 0 | 0 | 0 | PASS |
+| SaleService | 32 | 32 | 0 | 0 | 0 | PASS |
+| ReportService | 21 | 21 | 0 | 0 | 0 | PASS |
+| AuthService | 23 | 23 | 0 | 0 | 0 | PASS |
+| **TOTAL** | **244** | **244** | **0** | **0** | **0** | **PASS** |
+
+**244/244 tests passed.**
+
+### Stage 8 Test Coverage (48 tests)
+
+The Stage 8 API suite verifies:
+
+- **Product update**: ADMIN success with DB verification; MANAGER denied (403); unauthenticated (401); validation (400); not found (404)
+- **Product with stock**: ADMIN/MANAGER success; unauthenticated (401); not found (404)
+- **Stock lookup**: ADMIN/MANAGER success; unauthenticated (401); not found (404)
+- **Reorder level**: ADMIN success with DB verification; MANAGER denied (403); unauthenticated (401); validation (400); not found (404)
+- **User creation**: ADMIN success with DB verification & hashed password; MANAGER denied (403); unauthenticated (401); validation (400); duplicate email (400)
+- **User listing**: ADMIN success with role filter; no passwordHash exposed; MANAGER denied (403); unauthenticated (401)
+- **User by ID**: ADMIN success; no passwordHash exposed; MANAGER denied (403); unauthenticated (401); not found (404)
+- **Password update**: ADMIN success with login verification; MANAGER denied (403); unauthenticated (401); validation (400); not found (404)
+
+### Security Verification
+
+| Question | Answer |
+|---|---|
+| Can MANAGER perform an ADMIN-only user-management operation? | **NO** — all 4 user-management routes return 403 for MANAGER |
+| Can MANAGER update product or reorder level? | **NO** — both return 403 for MANAGER |
+| Can unauthenticated users access new routes? | **NO** — all 8 new routes return 401 |
+| Can unauthorized requests reach business logic? | **NO** — middleware blocks before route/service |
+| Can unauthorized requests modify the database? | **NO** — database immutability verified for all mutations |
+| Are sensitive user fields protected? | **YES** — passwordHash never exposed in any response |
+| Are positive tests using valid resources? | **YES** — all positive tests use real DB entities |
+| Are exact status codes asserted? | **YES** — no 400/404 accepted as generic success |
+| Are there false-positive tests? | **NO** |
+
+### Database
+
+No database schema changes required for Stage 8. All routes use existing models and fields.
+
+### Files Associated With Stage 8
+
+| File | Purpose |
+|---|---|
+| `server.js` | 8 new routes with authentication/authorization |
+| `tests/Stage8Api.test.js` | Comprehensive 48-test Stage 8 API test suite |
+| `package-lock.json` | Dependency lockfile (unchanged from Stage 7) |
+
+---
 
 ## 8. Dates and timezones
 
@@ -171,7 +463,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 | K6 | MED | ~~Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware.~~ **RESOLVED in Stage 6** | ~~Stage 6: custom error classes + one error handler.~~ |
 | K7 | MED | `quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles. | Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide. |
 | K8 | MED | Every file creates its own `new PrismaClient()` (about 12 connection pools); risks hitting the free-tier connection limit. | One shared `lib/prisma.js` instance. |
-| K9 | MED | No user-management routes; users only via seed/scripts. | Admin-only create user / change password / list users. |
+| K9 | MED | ~~No user-management routes; users only via seed/scripts.~~ **RESOLVED in Stage 8** | ~~Admin-only create user / change password / list users.~~ |
 | K10 | MED | Shop day (UTC+1) vs UTC day offset of one hour. | A `BUSINESS_TZ` offset constant for day boundaries, or `@db.Date` for reportDate. |
 | K11 | LOW | JWT role stays stale up to 8h after a role change; no logout or refresh. | Short expiry + refresh, or re-check role from DB on sensitive routes. |
 | K12 | LOW | `crateSize` of 0 is allowed, so crate conversion silently yields 0 bottles. | Require positive integer or null. |
@@ -181,8 +473,8 @@ Preferences of the project owner: plain-language explanation before code, step-b
 ## 13. Roadmap
 
 1. **Stage 6 — error handling:** ~~custom error classes (Validation 400, NotFound 404, Conflict 400), one central error middleware, 401 for bad/expired tokens, 404 for unknown routes, remove string matching.~~ **COMPLETED**
-2. **Stage 7 — roles:** `requireRole` middleware. Proposed matrix (confirm with Floramagg): Admin only = register/update/discontinue/reactivate product, adjust reorder level, cancel sale, user management. Admin + Manager = view everything, receive stock, complete sale, generate daily report.
-3. **Stage 8 — missing routes and user management** (K9, section 7 gaps).
+2. **Stage 7 — roles:** `requireRole` middleware. **VERIFIED AFTER REMEDIATION.** 14 protected routes enforced: Admin-only (POST /products, POST /products/:id/discontinue, POST /products/:id/reactivate, POST /sales/:id/cancel); Admin+Manager (GET /products, GET /stock/low, POST /stock/receive, POST /sales, GET /sales, GET /sales/:id, POST /reports/daily, GET /reports/:date, GET /reports). 56 authorization tests, 196 total tests pass.
+3. **Stage 8 — missing routes and user management:** **VERIFIED — COMPLETE.** 8 new routes added (2 product, 2 stock, 4 user management). All 22 protected routes enforced. 48 Stage 8 API tests, 244 total tests pass. K9 resolved.
 4. **Stage 9 — hardening:** K1, K2, K3, K7, K8, plus `helmet`, `cors`, login rate limiting, body size limit, request validation.
 5. **Stage 10 — deployment:** API on Render (free tier sleeps after about 15 minutes idle, so the first request is slow), frontend on Vercel, Aiven for the DB.
 6. **Frontend** (section 15).

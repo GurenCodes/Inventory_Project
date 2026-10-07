@@ -22,6 +22,7 @@ const {
 } = require('./errors');
 
 const authService = require('./UserManagement/Services/AuthService');
+const userService = require('./UserManagement/Services/UserService');
 const productService = require('./InventoryManagement/Services/ProductService');
 const stockService = require('./InventoryManagement/Services/StockService');
 const saleService = require('./InventoryManagement/Services/SaleService');
@@ -103,12 +104,27 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// Role-based Authorization Middleware (Stage 7)
+// Checks if the authenticated user has one of the required roles
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      throw new ForbiddenError('Role information missing');
+    }
+    if (!allowedRoles.includes(req.user.role)) {
+      throw new ForbiddenError('Insufficient permissions');
+    }
+    next();
+  }
+}
+
 // ============================================
 // PRODUCT ROUTES (Stage 3) - ALL AUTHENTICATED
 // ============================================
 
 // GET /products - list products with optional category filter and includeInactive
-app.get('/products', authenticateToken, async (req, res) => {
+// Both Admin and Manager can view products
+app.get('/products', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { category, includeInactive } = req.query;
   
   // Convert query params
@@ -126,8 +142,8 @@ app.get('/products', authenticateToken, async (req, res) => {
   res.json(products);
 });
 
-// POST /products - register a new product
-app.post('/products', authenticateToken, async (req, res) => {
+// POST /products - register a new product (Admin only)
+app.post('/products', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const { name, category, unitPrice, crateSize, reorderLevel } = req.body;
   
   const result = await productService.registerProduct({
@@ -141,8 +157,8 @@ app.post('/products', authenticateToken, async (req, res) => {
   res.status(201).json(result);
 });
 
-// POST /products/:id/discontinue - discontinue a product
-app.post('/products/:id/discontinue', authenticateToken, async (req, res) => {
+// POST /products/:id/discontinue - discontinue a product (Admin only)
+app.post('/products/:id/discontinue', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     throw new ValidationError('Invalid product ID');
@@ -152,8 +168,8 @@ app.post('/products/:id/discontinue', authenticateToken, async (req, res) => {
   res.json(result);
 });
 
-// POST /products/:id/reactivate - reactivate a discontinued product
-app.post('/products/:id/reactivate', authenticateToken, async (req, res) => {
+// POST /products/:id/reactivate - reactivate a discontinued product (Admin only)
+app.post('/products/:id/reactivate', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     throw new ValidationError('Invalid product ID');
@@ -163,19 +179,54 @@ app.post('/products/:id/reactivate', authenticateToken, async (req, res) => {
   res.json(result);
 });
 
+// PUT /products/:id - update a product (Admin only)
+app.put('/products/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid product ID');
+  }
+  
+  const { name, category, unitPrice, crateSize, reorderLevel } = req.body;
+  
+  const result = await productService.updateProduct(id, {
+    name,
+    category,
+    unitPrice,
+    crateSize,
+    reorderLevel,
+  });
+  
+  res.json(result);
+});
+
+// GET /products/:id - get a product with its stock (Admin + Manager)
+app.get('/products/:id', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid product ID');
+  }
+  
+  const product = await productService.getProductWithStock(id);
+  if (!product) {
+    throw new NotFoundError(`Product ${id} not found`);
+  }
+  
+  res.json(product);
+});
+
 // ============================================
 // STOCK ROUTES (Stage 3) - ALL AUTHENTICATED
 // ============================================
 
-// GET /stock/low - list low stock products
-app.get('/stock/low', authenticateToken, async (req, res) => {
+// GET /stock/low - list low stock products (Admin + Manager)
+app.get('/stock/low', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const lowStock = await stockService.listLowStock();
   res.json(lowStock);
 });
 
-// POST /stock/receive - receive a batch order (log delivery + update stock)
+// POST /stock/receive - receive a batch order (log delivery + update stock) (Admin + Manager)
 // receivedById comes from authenticated user, NOT client
-app.post('/stock/receive', authenticateToken, async (req, res) => {
+app.post('/stock/receive', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { productId, crateCount, bottleCount, costPerUnit, expiryDate } = req.body;
   
   // receivedById comes from the authenticated user's token
@@ -193,13 +244,44 @@ app.post('/stock/receive', authenticateToken, async (req, res) => {
   res.status(201).json(result);
 });
 
+// GET /stock/:productId - get stock for a specific product (Admin + Manager)
+app.get('/stock/:productId', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+  const productId = parseInt(req.params.productId, 10);
+  if (isNaN(productId)) {
+    throw new ValidationError('Invalid product ID');
+  }
+  
+  const stock = await stockService.getStockForProduct(productId);
+  if (!stock) {
+    throw new NotFoundError(`Stock for product ${productId} not found`);
+  }
+  
+  res.json(stock);
+});
+
+// PUT /stock/:productId/reorder-level - adjust reorder level for a product (Admin only)
+app.put('/stock/:productId/reorder-level', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const productId = parseInt(req.params.productId, 10);
+  if (isNaN(productId)) {
+    throw new ValidationError('Invalid product ID');
+  }
+  
+  const { reorderLevel } = req.body;
+  if (reorderLevel === undefined || reorderLevel === null) {
+    throw new ValidationError('Reorder level is required');
+  }
+  
+  const result = await stockService.adjustReorderLevel(productId, reorderLevel);
+  res.json(result);
+});
+
 // ============================================
 // SALE ROUTES (Stage 4) - ALL AUTHENTICATED
 // ============================================
 
-// POST /sales - complete a sale (checkout)
+// POST /sales - complete a sale (checkout) (Admin + Manager)
 // soldById comes from authenticated user, NOT client
-app.post('/sales', authenticateToken, async (req, res) => {
+app.post('/sales', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { items } = req.body;
   
   // soldById comes from the authenticated user's token
@@ -213,15 +295,15 @@ app.post('/sales', authenticateToken, async (req, res) => {
   res.status(201).json(result);
 });
 
-// GET /sales - list sales with optional status filter
-app.get('/sales', authenticateToken, async (req, res) => {
+// GET /sales - list sales with optional status filter (Admin + Manager)
+app.get('/sales', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { status } = req.query;
   const sales = await saleService.listSales(status);
   res.json(sales);
 });
 
-// GET /sales/:id - get a specific sale by ID
-app.get('/sales/:id', authenticateToken, async (req, res) => {
+// GET /sales/:id - get a specific sale by ID (Admin + Manager)
+app.get('/sales/:id', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     throw new ValidationError('Invalid sale ID');
@@ -235,8 +317,8 @@ app.get('/sales/:id', authenticateToken, async (req, res) => {
   res.json(sale);
 });
 
-// POST /sales/:id/cancel - cancel a sale
-app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
+// POST /sales/:id/cancel - cancel a sale (Admin only)
+app.post('/sales/:id/cancel', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
     throw new ValidationError('Invalid sale ID');
@@ -254,9 +336,9 @@ app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
 // REPORT ROUTES (Stage 5) - ALL AUTHENTICATED
 // ============================================
 
-// POST /reports/daily - generate a daily report
+// POST /reports/daily - generate a daily report (Admin + Manager)
 // generatedById comes from authenticated user, NOT client
-app.post('/reports/daily', authenticateToken, async (req, res) => {
+app.post('/reports/daily', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { date } = req.body;
   
   // generatedById comes from the authenticated user's token
@@ -270,8 +352,8 @@ app.post('/reports/daily', authenticateToken, async (req, res) => {
   res.status(201).json(result);
 });
 
-// GET /reports/:date - get a specific daily report by date
-app.get('/reports/:date', authenticateToken, async (req, res) => {
+// GET /reports/:date - get a specific daily report by date (Admin + Manager)
+app.get('/reports/:date', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const date = req.params.date;
   
   // Validate date format
@@ -288,8 +370,8 @@ app.get('/reports/:date', authenticateToken, async (req, res) => {
   res.json(report);
 });
 
-// GET /reports - list reports with start and end date range (both required)
-app.get('/reports', authenticateToken, async (req, res) => {
+// GET /reports - list reports with start and end date range (both required) (Admin + Manager)
+app.get('/reports', authenticateToken, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
   const { start, end } = req.query;
   
   if (!start || !end) {
@@ -305,6 +387,65 @@ app.get('/reports', authenticateToken, async (req, res) => {
   
   const reports = await reportService.listReports(startDate, endDate);
   res.json(reports);
+});
+
+// ============================================
+// USER MANAGEMENT ROUTES (Stage 8) - ADMIN ONLY
+// ============================================
+
+// POST /users - create a new user (Admin only)
+app.post('/users', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const { fullName, email, password, role } = req.body;
+  
+  const result = await userService.createUser({
+    fullName,
+    email,
+    password,
+    role,
+  });
+  
+  res.status(201).json(result);
+});
+
+// GET /users - list all users (Admin only)
+app.get('/users', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const { role } = req.query;
+  
+  const users = await userService.listUsers(role);
+  res.json(users);
+});
+
+// GET /users/:id - get a user by ID (Admin only)
+app.get('/users/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid user ID');
+  }
+  
+  const user = await userService.getUserById(id);
+  if (!user) {
+    throw new NotFoundError(`User ${id} not found`);
+  }
+  
+  res.json(user);
+});
+
+// PUT /users/:id/password - update a user's password (Admin only)
+app.put('/users/:id/password', authenticateToken, requireRole('ADMIN'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid user ID');
+  }
+  
+  const { password } = req.body;
+  if (!password) {
+    throw new ValidationError('New password is required');
+  }
+  
+  const result = await userService.updatePassword(id, password);
+  // Never return passwordHash to the caller
+  const { passwordHash, ...safeUser } = result;
+  res.json(safeUser);
 });
 
 // Unknown route handler - must be after all defined routes
