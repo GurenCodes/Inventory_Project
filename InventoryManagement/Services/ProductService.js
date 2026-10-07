@@ -18,8 +18,8 @@ class ProductService {
       throw new ValidationError('Unit price must be a positive number');
     }
     if (crateSize !== undefined && crateSize !== null) {
-      if (typeof crateSize !== 'number' || crateSize < 0) {
-        throw new ValidationError('Crate size must be a non-negative number');
+      if (typeof crateSize !== 'number' || crateSize <= 0) {
+        throw new ValidationError('Crate size must be a positive number');
       }
     }
     if (reorderLevel !== undefined && reorderLevel !== null) {
@@ -53,8 +53,8 @@ class ProductService {
       }
     }
     if (data.crateSize !== undefined && data.crateSize !== null) {
-      if (typeof data.crateSize !== 'number' || data.crateSize < 0) {
-        throw new ValidationError('Crate size must be a non-negative number');
+      if (typeof data.crateSize !== 'number' || data.crateSize <= 0) {
+        throw new ValidationError('Crate size must be a positive number');
       }
     }
     if (data.name !== undefined) {

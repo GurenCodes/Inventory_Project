@@ -163,7 +163,7 @@ async function runTests() {
   // Valid input
   try {
     const res = await productService.updateProduct(testProd.product.id, { name: `${TEST_PREFIX}Updated`, unitPrice: 600 });
-    if (res.name === `${TEST_PREFIX}Updated` && res.unitPrice === 600) {
+    if (res.name === `${TEST_PREFIX}Updated` && Number(res.unitPrice) === 600) {
       results.updateProduct.validInput = true;
       console.log('✅ Valid input: PASS - Product updated');
     } else {
@@ -217,7 +217,7 @@ async function runTests() {
   // Database state
   try {
     const dbProd = await prisma.product.findUnique({ where: { id: testProd.product.id } });
-    if (dbProd.name === `${TEST_PREFIX}Updated` && dbProd.unitPrice === 600) {
+    if (dbProd.name === `${TEST_PREFIX}Updated` && Number(dbProd.unitPrice) === 600) {
       results.updateProduct.dbState = true;
       console.log('✅ Database state: PASS - Changes persisted');
     } else {

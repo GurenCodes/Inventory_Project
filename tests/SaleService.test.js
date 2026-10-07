@@ -253,7 +253,7 @@ async function runTests() {
     const dbSale = await prisma.sale.findUnique({ where: { id: res.id } });
     const dbItems = await prisma.saleItem.findMany({ where: { saleId: res.id } });
     const dbStock = await prisma.stock.findUnique({ where: { productId: testProduct.id } });
-    if (dbSale && dbSale.status === 'completed' && dbSale.totalAmount === 5000 &&
+    if (dbSale && dbSale.status === 'completed' && Number(dbSale.totalAmount) === 5000 &&
         dbItems.length === 1 && dbItems[0].quantityBottles === 10 &&
         dbStock && dbStock.quantityBottles === 90) {
       results.completeSale.dbState = true;
