@@ -25,11 +25,11 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Services (Product, Stock, Sale, Report, Auth, User) | Done, validated, tested |
 | Password security | bcrypt (salt rounds 10), done |
 | API stages 1–5 (health, login + JWT, products/stock, sales, reports) | Done, tested |
-| Stage 6: error handling pass | **Next** |
-| Stage 7: role-based restrictions | Next |
+| Stage 6: error handling pass | **Done** |
+| Stage 7: role-based restrictions | **Next** |
 | Missing routes, hardening, deployment, frontend | Not started |
 
-Git: `bfa125d` committed locally, one commit ahead of origin/main, not pushed. Untracked `opencode_log.txt` is ignorable.
+Git: `8fb780d` committed locally, one commit ahead of origin/main, not pushed. Untracked `opencode_log.txt` is ignorable.
 
 ## 3. Stack and environment
 
@@ -61,11 +61,14 @@ Drinks-shop/
 The folder is `Services` (plural). Rules:
 
 - A repository touches **one table only** and exports an instance (`module.exports = new XRepository()`). Multi-table logic lives in a Service.
-- Services validate **before any DB call** and throw `Error('clear message')`.
-- Not-found: lookups (`getSale`, `getReportByDate`, `getStockForProduct`) return `null`; mutations on a missing record throw ("does not exist" or Prisma P2025).
+- Services validate **before any DB call** and throw structured errors (`ValidationError`, `NotFoundError`, `ConflictError`).
+- Not-found: lookups (`getSale`, `getReportByDate`, `getStockForProduct`) return `null`; mutations on a missing record throw `NotFoundError`.
 - Routes only translate HTTP ⇄ Service. No business logic in routes.
 - Identity fields (`receivedById`, `soldById`, `generatedById`) always come from the token (`req.user.userId`), never the request body.
 - Every route requires login except `GET /health` and `POST /auth/login`.
+- Centralized error middleware in `server.js` handles all error responses.
+- Authentication failures (missing/invalid/expired JWT) return `401` via `UnauthorizedError`.
+- Unknown routes return `404` via `NotFoundError`.
 - New files go in the matching domain folder. Don't create flat top-level folders.
 
 ## 5. Data model (7 tables) and why
@@ -114,7 +117,7 @@ Auth: `POST /auth/login` {email, password} → `{token, user{id, fullName, email
 | GET /reports/:date | getReportByDate | 200 / 404 |
 | GET /reports?start=&end= | listReports | 200 |
 
-Status codes: 400 validation/duplicate report, 401 missing token or bad login, 403 invalid/expired JWT (see K6), 404 not found, 500 unexpected (logged, generic message to client).
+Status codes: 400 validation/duplicate report/conflict, 401 missing/invalid/expired authentication, 403 authenticated but forbidden (Stage 7), 404 not found, 500 unexpected (logged, generic message to client).
 
 **Routes that do not exist yet:** update product, get one product with stock, get stock for a product, adjust reorder level, user management. `GET /products` does not include stock, but the catalog screen needs product + stock together.
 
@@ -165,7 +168,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 | K3 | HIGH | `cancelSale` has unclear semantics: it works on completed sales without restocking, and can cancel an already-cancelled sale. `pending` is never created by the API. | Decide policy: cancel = restock, allowed only from `completed`, Admin-only. |
 | K4 | HIGH | No role enforcement: any logged-in user can do anything. | Stage 7. |
 | K5 | HIGH | Dev, tests and `seed.js` all hit the shared production-style Aiven DB; `seed.js` wipes every table. | Create a separate dev/test database; make seed refuse to run without a `--force` flag. |
-| K6 | MED | Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware. | Stage 6: custom error classes + one error handler. |
+| K6 | MED | ~~Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware.~~ **RESOLVED in Stage 6** | ~~Stage 6: custom error classes + one error handler.~~ |
 | K7 | MED | `quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles. | Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide. |
 | K8 | MED | Every file creates its own `new PrismaClient()` (about 12 connection pools); risks hitting the free-tier connection limit. | One shared `lib/prisma.js` instance. |
 | K9 | MED | No user-management routes; users only via seed/scripts. | Admin-only create user / change password / list users. |
@@ -177,7 +180,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 
 ## 13. Roadmap
 
-1. **Stage 6 — error handling:** custom error classes (Validation 400, NotFound 404, Conflict 400), one central error middleware, 401 for bad/expired tokens, 404 for unknown routes, remove string matching.
+1. **Stage 6 — error handling:** ~~custom error classes (Validation 400, NotFound 404, Conflict 400), one central error middleware, 401 for bad/expired tokens, 404 for unknown routes, remove string matching.~~ **COMPLETED**
 2. **Stage 7 — roles:** `requireRole` middleware. Proposed matrix (confirm with Floramagg): Admin only = register/update/discontinue/reactivate product, adjust reorder level, cancel sale, user management. Admin + Manager = view everything, receive stock, complete sale, generate daily report.
 3. **Stage 8 — missing routes and user management** (K9, section 7 gaps).
 4. **Stage 9 — hardening:** K1, K2, K3, K7, K8, plus `helmet`, `cors`, login rate limiting, body size limit, request validation.
