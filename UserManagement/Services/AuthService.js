@@ -1,21 +1,22 @@
 // UserManagement/Service/AuthService.js
 const userRepository = require('../Repository/UserRepository');
 const userService = require('./UserService');
+const { ValidationError, UnauthorizedError } = require('../../errors');
 
 class AuthService {
   async login(email, password) {
     if (!email || !password) {
-      throw new Error('Email and password are required');
+      throw new ValidationError('Email and password are required');
     }
 
     const user = await userRepository.findByEmail(email);
     if (!user) {
-      throw new Error('Invalid email or password');
+      throw new UnauthorizedError('Invalid email or password');
     }
 
     const isValid = await userService.verifyPassword(password, user.passwordHash);
     if (!isValid) {
-      throw new Error('Invalid email or password');
+      throw new UnauthorizedError('Invalid email or password');
     }
 
     // Never return passwordHash to the caller

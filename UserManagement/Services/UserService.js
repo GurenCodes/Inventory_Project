@@ -1,6 +1,7 @@
 // UserManagement/Service/UserService.js
 const bcrypt = require('bcrypt');
 const userRepository = require('../Repository/UserRepository');
+const { ValidationError } = require('../../errors');
 
 const SALT_ROUNDS = 10;
 
@@ -8,7 +9,7 @@ class UserService {
   // Hash a plain-text password using bcrypt
   async hashPassword(plainPassword) {
     if (!plainPassword || typeof plainPassword !== 'string') {
-      throw new Error('Password is required and must be a string');
+      throw new ValidationError('Password is required and must be a string');
     }
     return bcrypt.hash(plainPassword, SALT_ROUNDS);
   }
@@ -16,19 +17,19 @@ class UserService {
   // Create a new user with a hashed password
   async createUser({ fullName, email, password, role = 'MANAGER' }) {
     if (!fullName || typeof fullName !== 'string' || fullName.trim() === '') {
-      throw new Error('Full name is required');
+      throw new ValidationError('Full name is required');
     }
     if (!email || typeof email !== 'string' || email.trim() === '') {
-      throw new Error('Email is required');
+      throw new ValidationError('Email is required');
     }
     if (!password || typeof password !== 'string' || password.length < 1) {
-      throw new Error('Password is required');
+      throw new ValidationError('Password is required');
     }
 
     const normalizedEmail = email.trim().toLowerCase();
     const existingUser = await userRepository.findByEmail(normalizedEmail);
     if (existingUser) {
-      throw new Error('Email already in use');
+      throw new ValidationError('Email already in use');
     }
 
     const passwordHash = await this.hashPassword(password);
@@ -48,7 +49,7 @@ class UserService {
   // Update a user's password (hashes the new password)
   async updatePassword(userId, newPassword) {
     if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 1) {
-      throw new Error('New password is required');
+      throw new ValidationError('New password is required');
     }
     const passwordHash = await this.hashPassword(newPassword);
     return userRepository.update(userId, { passwordHash });

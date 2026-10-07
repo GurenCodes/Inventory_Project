@@ -29,7 +29,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 7: role-based restrictions | **Next** |
 | Missing routes, hardening, deployment, frontend | Not started |
 
-Git: `8fb780d` committed locally, one commit ahead of origin/main, not pushed. Untracked `opencode_log.txt` is ignorable.
+Git: `f77b278` committed locally, one commit ahead of origin/main, not pushed. Untracked `opencode_log.txt` is ignorable.
 
 ## 3. Stack and environment
 
@@ -135,7 +135,7 @@ Status codes: 400 validation/duplicate report/conflict, 401 missing/invalid/expi
 - Output format per function: valid input, missing fields, invalid values, business rules, DB state verified by direct query, transaction integrity. Each marked PASS / FAIL / N/A.
 - Conventions: `TEST_` prefix for test data; clean up in `try/finally`; each test uses its own non-colliding date (report tests use 2026-07-0x); assert the **specific** expected error message. A test that only checks "something threw" once passed because of a unique-constraint error, which is a false pass.
 - Tests run against the live shared Aiven database (see K5).
-- Last known: ReportService suite 17/17 pass, 0 leftover rows. Verify older suites compare Prisma `Decimal` values with `Number()`, not `===`.
+- Last known: ReportService suite 17/17 pass, 0 leftover rows. StockService all pass. AuthService/UserService all pass. ProductService and SaleService have pre-existing test setup failures (zeroCrateSize validation expectation mismatch; updateProduct test data setup issues; SaleService test setup dependent on DB connectivity). These are not Stage 6 regressions.
 - Seed logins (DEV ONLY, remove before go-live): `staff1`…`staff10@floramagg.com`, password `password_N`. Odd N = MANAGER, even N = ADMIN. IDs change on every reseed.
 
 ## 10. Working with the AI assistant (opencode)

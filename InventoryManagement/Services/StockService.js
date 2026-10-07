@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const stockRepository = require('../Repository/Stock');
 const itemBatchOrderRepository = require('../Repository/ItemBatchOrder');
 const productRepository = require('../Repository/Product');
+const { ValidationError, NotFoundError } = require('../../errors');
 
 class StockService {
   // A delivery arrives from a supplier: log the batch order AND
@@ -12,34 +13,34 @@ class StockService {
   // If either step fails, both are rolled back (no half-updated stock).
   async receiveBatchOrder({ productId, receivedById, crateCount, bottleCount, costPerUnit, expiryDate }) {
     if (productId === undefined || productId === null) {
-      throw new Error('Product ID is required');
+      throw new ValidationError('Product ID is required');
     }
     if (receivedById === undefined || receivedById === null) {
-      throw new Error('Received by user ID is required');
+      throw new ValidationError('Received by user ID is required');
     }
     if (costPerUnit === undefined || costPerUnit === null) {
-      throw new Error('Cost per unit is required');
+      throw new ValidationError('Cost per unit is required');
     }
     if (typeof costPerUnit !== 'number' || costPerUnit <= 0) {
-      throw new Error('Cost per unit must be a positive number');
+      throw new ValidationError('Cost per unit must be a positive number');
     }
     if (crateCount !== undefined && crateCount !== null) {
       if (typeof crateCount !== 'number' || crateCount < 0) {
-        throw new Error('Crate count must be a non-negative number');
+        throw new ValidationError('Crate count must be a non-negative number');
       }
     }
     if (bottleCount !== undefined && bottleCount !== null) {
       if (typeof bottleCount !== 'number' || bottleCount < 0) {
-        throw new Error('Bottle count must be a non-negative number');
+        throw new ValidationError('Bottle count must be a non-negative number');
       }
     }
     if (crateCount === 0 && bottleCount === 0) {
-      throw new Error('At least one of crateCount or bottleCount must be greater than zero');
+      throw new ValidationError('At least one of crateCount or bottleCount must be greater than zero');
     }
 
     const product = await productRepository.findById(productId);
     if (!product) {
-      throw new Error(`Product ${productId} does not exist`);
+      throw new NotFoundError(`Product ${productId} does not exist`);
     }
 
     // Convert crates into bottles using the product's own crate size
@@ -79,17 +80,17 @@ class StockService {
 
   async adjustReorderLevel(productId, newLevel) {
     if (productId === undefined || productId === null) {
-      throw new Error('Product ID is required');
+      throw new ValidationError('Product ID is required');
     }
     if (newLevel === undefined || newLevel === null) {
-      throw new Error('Reorder level is required');
+      throw new ValidationError('Reorder level is required');
     }
     if (typeof newLevel !== 'number' || newLevel < 0) {
-      throw new Error('Reorder level must be a non-negative number');
+      throw new ValidationError('Reorder level must be a non-negative number');
     }
 
     const stock = await stockRepository.findByProductId(productId);
-    if (!stock) throw new Error(`No stock record for product ${productId}`);
+    if (!stock) throw new NotFoundError(`No stock record for product ${productId}`);
     return stockRepository.update(stock.id, { reorderLevel: newLevel });
   }
 }

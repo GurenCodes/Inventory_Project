@@ -3,11 +3,23 @@
 // Stage 1: bare server with health check
 // Stage 2: auth login + JWT middleware
 // Stage 3: Product and Stock routes (all authenticated)
+// Stage 4: Sale routes
+// Stage 5: Report routes
+// Stage 6: centralized error handling
 
 require('dotenv').config();
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
+
+const { 
+  ValidationError, 
+  NotFoundError, 
+  ConflictError, 
+  UnauthorizedError,
+  ForbiddenError,
+  AppError 
+} = require('./errors');
 
 const authService = require('./UserManagement/Services/AuthService');
 const productService = require('./InventoryManagement/Services/ProductService');
@@ -33,11 +45,11 @@ app.get('/health', (req, res) => {
 
 // POST /auth/login (Stage 2)
 // Accepts email/password, returns JWT + user info on success
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', async (req, res, next) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+    throw new ValidationError('Email and password are required');
   }
 
   try {
@@ -62,11 +74,10 @@ app.post('/auth/login', async (req, res) => {
   } catch (err) {
     // AuthService throws "Invalid email or password" for both missing user and wrong password
     if (err.message === 'Invalid email or password') {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      throw new UnauthorizedError('Invalid email or password');
     }
     // For any other unexpected error
-    console.error('Login error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    next(err);
   }
 });
 
@@ -77,12 +88,14 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
-    return res.status(401).json({ error: 'Authentication token required' });
+    throw new UnauthorizedError('Authentication token required');
   }
 
   jwt.verify(token, JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
+      // All JWT verification failures are 401 (not authenticated)
+      // 403 is for authenticated but forbidden (Stage 7)
+      throw new UnauthorizedError('Invalid or expired token');
     }
     // Attach decoded user info (userId, role) to request
     req.user = decoded;
@@ -96,100 +109,58 @@ function authenticateToken(req, res, next) {
 
 // GET /products - list products with optional category filter and includeInactive
 app.get('/products', authenticateToken, async (req, res) => {
-  try {
-    const { category, includeInactive } = req.query;
-    
-    // Convert query params
-    const categoryFilter = category || undefined;
-    const includeInactiveFlag = includeInactive === 'true';
-    
-    let products;
-    if (includeInactiveFlag) {
-      // listProducts doesn't support includeInactive, need to use listActiveProducts when false
-      // Actually listProducts returns all, listActiveProducts returns only active
-      // For includeInactive=true, we need all products
-      // The service has listProducts (all) and listActiveProducts (only active)
-      products = await productService.listProducts(categoryFilter);
-    } else {
-      // Default: only active products
-      products = await productService.listActiveProducts(categoryFilter);
-    }
-    
-    res.json(products);
-  } catch (err) {
-    console.error('GET /products error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const { category, includeInactive } = req.query;
+  
+  // Convert query params
+  const categoryFilter = category || undefined;
+  const includeInactiveFlag = includeInactive === 'true';
+  
+  let products;
+  if (includeInactiveFlag) {
+    products = await productService.listProducts(categoryFilter);
+  } else {
+    // Default: only active products
+    products = await productService.listActiveProducts(categoryFilter);
   }
+  
+  res.json(products);
 });
 
 // POST /products - register a new product
 app.post('/products', authenticateToken, async (req, res) => {
-  try {
-    const { name, category, unitPrice, crateSize, reorderLevel } = req.body;
-    
-    const result = await productService.registerProduct({
-      name,
-      category,
-      unitPrice,
-      crateSize,
-      reorderLevel,
-    });
-    
-    res.status(201).json(result);
-  } catch (err) {
-    // Validation/business rule errors from Service
-    if (err.message.includes('required') || 
-        err.message.includes('must be') || 
-        err.message.includes('cannot be empty')) {
-      return res.status(400).json({ error: err.message });
-    }
-    console.error('POST /products error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const { name, category, unitPrice, crateSize, reorderLevel } = req.body;
+  
+  const result = await productService.registerProduct({
+    name,
+    category,
+    unitPrice,
+    crateSize,
+    reorderLevel,
+  });
+  
+  res.status(201).json(result);
 });
 
 // POST /products/:id/discontinue - discontinue a product
 app.post('/products/:id/discontinue', authenticateToken, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid product ID' });
-    }
-    
-    const result = await productService.discontinueProduct(id);
-    res.json(result);
-  } catch (err) {
-    if (err.message.includes('does not exist')) {
-      return res.status(404).json({ error: err.message });
-    }
-    if (err.message.includes('required') || err.message.includes('must be')) {
-      return res.status(400).json({ error: err.message });
-    }
-    console.error('POST /products/:id/discontinue error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid product ID');
   }
+  
+  const result = await productService.discontinueProduct(id);
+  res.json(result);
 });
 
 // POST /products/:id/reactivate - reactivate a discontinued product
 app.post('/products/:id/reactivate', authenticateToken, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid product ID' });
-    }
-    
-    const result = await productService.restoreProduct(id);
-    res.json(result);
-  } catch (err) {
-    if (err.message.includes('does not exist')) {
-      return res.status(404).json({ error: err.message });
-    }
-    if (err.message.includes('required') || err.message.includes('must be')) {
-      return res.status(400).json({ error: err.message });
-    }
-    console.error('POST /products/:id/reactivate error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid product ID');
   }
+  
+  const result = await productService.restoreProduct(id);
+  res.json(result);
 });
 
 // ============================================
@@ -198,45 +169,28 @@ app.post('/products/:id/reactivate', authenticateToken, async (req, res) => {
 
 // GET /stock/low - list low stock products
 app.get('/stock/low', authenticateToken, async (req, res) => {
-  try {
-    const lowStock = await stockService.listLowStock();
-    res.json(lowStock);
-  } catch (err) {
-    console.error('GET /stock/low error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const lowStock = await stockService.listLowStock();
+  res.json(lowStock);
 });
 
 // POST /stock/receive - receive a batch order (log delivery + update stock)
 // receivedById comes from authenticated user, NOT client
 app.post('/stock/receive', authenticateToken, async (req, res) => {
-  try {
-    const { productId, crateCount, bottleCount, costPerUnit, expiryDate } = req.body;
-    
-    // receivedById comes from the authenticated user's token
-    const receivedById = req.user.userId;
-    
-    const result = await stockService.receiveBatchOrder({
-      productId,
-      receivedById,
-      crateCount,
-      bottleCount,
-      costPerUnit,
-      expiryDate: expiryDate ? new Date(expiryDate) : undefined,
-    });
-    
-    res.status(201).json(result);
-  } catch (err) {
-    // Validation/business rule errors from Service
-    if (err.message.includes('required') || 
-        err.message.includes('must be') || 
-        err.message.includes('does not exist') ||
-        err.message.includes('greater than zero')) {
-      return res.status(400).json({ error: err.message });
-    }
-    console.error('POST /stock/receive error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const { productId, crateCount, bottleCount, costPerUnit, expiryDate } = req.body;
+  
+  // receivedById comes from the authenticated user's token
+  const receivedById = req.user.userId;
+  
+  const result = await stockService.receiveBatchOrder({
+    productId,
+    receivedById,
+    crateCount,
+    bottleCount,
+    costPerUnit,
+    expiryDate: expiryDate ? new Date(expiryDate) : undefined,
+  });
+  
+  res.status(201).json(result);
 });
 
 // ============================================
@@ -246,90 +200,54 @@ app.post('/stock/receive', authenticateToken, async (req, res) => {
 // POST /sales - complete a sale (checkout)
 // soldById comes from authenticated user, NOT client
 app.post('/sales', authenticateToken, async (req, res) => {
-  try {
-    const { items } = req.body;
-    
-    // soldById comes from the authenticated user's token
-    const soldById = req.user.userId;
-    
-    const result = await saleService.completeSale({
-      soldById,
-      items,
-    });
-    
-    res.status(201).json(result);
-  } catch (err) {
-    // Validation/business rule errors from Service
-    if (err.message.includes('required') || 
-        err.message.includes('must be') || 
-        err.message.includes('does not exist') ||
-        err.message.includes('discontinued') ||
-        err.message.includes('Not enough stock') ||
-        err.message.includes('at least one item') ||
-        err.message.includes('productId') ||
-        err.message.includes('quantityBottles') ||
-        err.message.includes('unitPrice')) {
-      return res.status(400).json({ error: err.message });
-    }
-    console.error('POST /sales error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const { items } = req.body;
+  
+  // soldById comes from the authenticated user's token
+  const soldById = req.user.userId;
+  
+  const result = await saleService.completeSale({
+    soldById,
+    items,
+  });
+  
+  res.status(201).json(result);
 });
 
 // GET /sales - list sales with optional status filter
 app.get('/sales', authenticateToken, async (req, res) => {
-  try {
-    const { status } = req.query;
-    const sales = await saleService.listSales(status);
-    res.json(sales);
-  } catch (err) {
-    console.error('GET /sales error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const { status } = req.query;
+  const sales = await saleService.listSales(status);
+  res.json(sales);
 });
 
 // GET /sales/:id - get a specific sale by ID
 app.get('/sales/:id', authenticateToken, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ error: 'Invalid sale ID' });
-    }
-    
-    const sale = await saleService.getSale(id);
-    if (!sale) {
-      return res.status(404).json({ error: `Sale ${id} not found` });
-    }
-    
-    res.json(sale);
-  } catch (err) {
-    console.error('GET /sales/:id error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    throw new ValidationError('Invalid sale ID');
   }
+  
+  const sale = await saleService.getSale(id);
+  if (!sale) {
+    throw new NotFoundError(`Sale ${id} not found`);
+  }
+  
+  res.json(sale);
 });
 
 // POST /sales/:id/cancel - cancel a sale
 app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
-    return res.status(400).json({ error: 'Invalid sale ID' });
+    throw new ValidationError('Invalid sale ID');
   }
   
-  try {
-    const result = await saleService.cancelSale(id);
-    if (!result) {
-      return res.status(404).json({ error: `Sale ${id} not found` });
-    }
-    
-    res.json(result);
-  } catch (err) {
-    // Prisma throws P2025 when record not found
-    if (err.code === 'P2025' || err.message.includes('not found') || err.message.includes('Record to update not found')) {
-      return res.status(404).json({ error: `Sale ${id} not found` });
-    }
-    console.error('POST /sales/:id/cancel error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const result = await saleService.cancelSale(id);
+  if (!result) {
+    throw new NotFoundError(`Sale ${id} not found`);
   }
+  
+  res.json(result);
 });
 
 // ============================================
@@ -339,79 +257,87 @@ app.post('/sales/:id/cancel', authenticateToken, async (req, res) => {
 // POST /reports/daily - generate a daily report
 // generatedById comes from authenticated user, NOT client
 app.post('/reports/daily', authenticateToken, async (req, res) => {
-  try {
-    const { date } = req.body;
-    
-    // generatedById comes from the authenticated user's token
-    const generatedById = req.user.userId;
-    
-    const result = await reportService.generateDailyReport({
-      date,
-      generatedById,
-    });
-    
-    res.status(201).json(result);
-  } catch (err) {
-    // Validation/business rule errors from Service
-    if (err.message.includes('required') || 
-        err.message.includes('Invalid date') ||
-        err.message.includes('future date')) {
-      return res.status(400).json({ error: err.message });
-    }
-    // Prisma unique constraint error (P2002) for duplicate reportDate
-    if (err.code === 'P2002') {
-      return res.status(400).json({ error: 'A report for this date already exists' });
-    }
-    console.error('POST /reports/daily error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+  const { date } = req.body;
+  
+  // generatedById comes from the authenticated user's token
+  const generatedById = req.user.userId;
+  
+  const result = await reportService.generateDailyReport({
+    date,
+    generatedById,
+  });
+  
+  res.status(201).json(result);
 });
 
 // GET /reports/:date - get a specific daily report by date
 app.get('/reports/:date', authenticateToken, async (req, res) => {
-  try {
-    const date = req.params.date;
-    
-    // Validate date format
-    const reportDate = new Date(date);
-    if (isNaN(reportDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid date format' });
-    }
-    
-    const report = await reportService.getReportByDate(date);
-    if (!report) {
-      return res.status(404).json({ error: `Report for ${date} not found` });
-    }
-    
-    res.json(report);
-  } catch (err) {
-    console.error('GET /reports/:date error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const date = req.params.date;
+  
+  // Validate date format
+  const reportDate = new Date(date);
+  if (isNaN(reportDate.getTime())) {
+    throw new ValidationError('Invalid date format');
   }
+  
+  const report = await reportService.getReportByDate(date);
+  if (!report) {
+    throw new NotFoundError(`Report for ${date} not found`);
+  }
+  
+  res.json(report);
 });
 
 // GET /reports - list reports with start and end date range (both required)
 app.get('/reports', authenticateToken, async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    
-    if (!start || !end) {
-      return res.status(400).json({ error: 'Start and end dates are required' });
-    }
-    
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid start or end date format' });
-    }
-    
-    const reports = await reportService.listReports(startDate, endDate);
-    res.json(reports);
-  } catch (err) {
-    console.error('GET /reports error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+  const { start, end } = req.query;
+  
+  if (!start || !end) {
+    throw new ValidationError('Start and end dates are required');
   }
+  
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    throw new ValidationError('Invalid start or end date format');
+  }
+  
+  const reports = await reportService.listReports(startDate, endDate);
+  res.json(reports);
+});
+
+// Unknown route handler - must be after all defined routes
+app.use((req, res, next) => {
+  throw new NotFoundError(`Route ${req.method} ${req.originalUrl} not found`);
+});
+
+// Centralized error handling middleware
+// Express 5: rejected promises in async route handlers are automatically forwarded here
+app.use((err, req, res, next) => {
+  // Prisma unique constraint violation (P2002) - duplicate key
+  if (err.code === 'P2002') {
+    return res.status(400).json({ error: 'A record with this value already exists' });
+  }
+  
+  // Prisma record not found (P2025)
+  if (err.code === 'P2025') {
+    return res.status(404).json({ error: 'Record not found' });
+  }
+  
+  // Prisma foreign key constraint violation (P2003)
+  if (err.code === 'P2003') {
+    return res.status(400).json({ error: 'Referenced record does not exist' });
+  }
+  
+  // Known application errors
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({ error: err.message });
+  }
+  
+  // Unexpected server error
+  console.error('Unexpected error:', err);
+  return res.status(500).json({ error: 'Internal server error' });
 });
 
 // Export middleware for use in future stages

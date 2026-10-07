@@ -1,6 +1,7 @@
 // InventoryManagement/Service/ProductService.js
 const productRepository = require('../Repository/Product');
 const stockRepository = require('../Repository/Stock');
+const { ValidationError, NotFoundError } = require('../../errors');
 
 class ProductService {
   // Creates a Product AND its matching Stock row in one step.
@@ -8,22 +9,22 @@ class ProductService {
   // so this prevents ever creating a product that has no stock tracking.
   async registerProduct({ name, category, unitPrice, crateSize, reorderLevel }) {
     if (!name || typeof name !== 'string' || name.trim() === '') {
-      throw new Error('Product name is required');
+      throw new ValidationError('Product name is required');
     }
     if (unitPrice === undefined || unitPrice === null) {
-      throw new Error('Unit price is required');
+      throw new ValidationError('Unit price is required');
     }
     if (typeof unitPrice !== 'number' || unitPrice <= 0) {
-      throw new Error('Unit price must be a positive number');
+      throw new ValidationError('Unit price must be a positive number');
     }
     if (crateSize !== undefined && crateSize !== null) {
       if (typeof crateSize !== 'number' || crateSize < 0) {
-        throw new Error('Crate size must be a non-negative number');
+        throw new ValidationError('Crate size must be a non-negative number');
       }
     }
     if (reorderLevel !== undefined && reorderLevel !== null) {
       if (typeof reorderLevel !== 'number' || reorderLevel < 0) {
-        throw new Error('Reorder level must be a non-negative number');
+        throw new ValidationError('Reorder level must be a non-negative number');
       }
     }
 
@@ -48,23 +49,23 @@ class ProductService {
   async updateProduct(id, data) {
     if (data.unitPrice !== undefined) {
       if (typeof data.unitPrice !== 'number' || data.unitPrice <= 0) {
-        throw new Error('Unit price must be a positive number');
+        throw new ValidationError('Unit price must be a positive number');
       }
     }
     if (data.crateSize !== undefined && data.crateSize !== null) {
       if (typeof data.crateSize !== 'number' || data.crateSize < 0) {
-        throw new Error('Crate size must be a non-negative number');
+        throw new ValidationError('Crate size must be a non-negative number');
       }
     }
     if (data.name !== undefined) {
       if (typeof data.name !== 'string' || data.name.trim() === '') {
-        throw new Error('Product name cannot be empty');
+        throw new ValidationError('Product name cannot be empty');
       }
       data.name = data.name.trim();
     }
     if (data.reorderLevel !== undefined && data.reorderLevel !== null) {
       if (typeof data.reorderLevel !== 'number' || data.reorderLevel < 0) {
-        throw new Error('Reorder level must be a non-negative number');
+        throw new ValidationError('Reorder level must be a non-negative number');
       }
     }
 
@@ -84,7 +85,7 @@ class ProductService {
   async discontinueProduct(id) {
     const product = await productRepository.findById(id);
     if (!product) {
-      throw new Error(`Product ${id} does not exist`);
+      throw new NotFoundError(`Product ${id} does not exist`);
     }
     return productRepository.update(id, { isActive: false });
   }
@@ -93,7 +94,7 @@ class ProductService {
   async restoreProduct(id) {
     const product = await productRepository.findById(id);
     if (!product) {
-      throw new Error(`Product ${id} does not exist`);
+      throw new NotFoundError(`Product ${id} does not exist`);
     }
     return productRepository.update(id, { isActive: true });
   }

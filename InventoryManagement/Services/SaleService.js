@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const saleRepository = require('../Repository/Sale');
 const stockRepository = require('../Repository/Stock');
 const productRepository = require('../Repository/Product');
+const { ValidationError, NotFoundError } = require('../../errors');
 
 class SaleService {
   // items = [{ productId, quantityBottles, unitPrice }, ...]
@@ -12,37 +13,37 @@ class SaleService {
   // the Sale + all SaleItems + decrements Stock, all in one transaction.
   async completeSale({ soldById, items }) {
     if (!items || items.length === 0) {
-      throw new Error('A sale must have at least one item');
+      throw new ValidationError('A sale must have at least one item');
     }
     if (!soldById) {
-      throw new Error('Sold by user ID is required');
+      throw new ValidationError('Sold by user ID is required');
     }
 
     // 1. Validate all items first
     for (const item of items) {
       if (!item.productId) {
-        throw new Error('Each sale item must have a productId');
+        throw new ValidationError('Each sale item must have a productId');
       }
       if (item.quantityBottles === undefined || item.quantityBottles === null) {
-        throw new Error('Each sale item must have a quantityBottles');
+        throw new ValidationError('Each sale item must have a quantityBottles');
       }
       if (typeof item.quantityBottles !== 'number' || item.quantityBottles <= 0) {
-        throw new Error('Quantity must be a positive number');
+        throw new ValidationError('Quantity must be a positive number');
       }
       if (item.unitPrice === undefined || item.unitPrice === null) {
-        throw new Error('Each sale item must have a unitPrice');
+        throw new ValidationError('Each sale item must have a unitPrice');
       }
       if (typeof item.unitPrice !== 'number' || item.unitPrice <= 0) {
-        throw new Error('Unit price must be a positive number');
+        throw new ValidationError('Unit price must be a positive number');
       }
 
       // Check if product exists and is active
       const product = await productRepository.findById(item.productId);
       if (!product) {
-        throw new Error(`Product ${item.productId} does not exist`);
+        throw new NotFoundError(`Product ${item.productId} does not exist`);
       }
       if (!product.isActive) {
-        throw new Error(`Product ${item.productId} is discontinued and cannot be sold`);
+        throw new ValidationError(`Product ${item.productId} is discontinued and cannot be sold`);
       }
     }
 
@@ -50,10 +51,10 @@ class SaleService {
     for (const item of items) {
       const stock = await stockRepository.findByProductId(item.productId);
       if (!stock) {
-        throw new Error(`No stock record for product ${item.productId}`);
+        throw new NotFoundError(`No stock record for product ${item.productId}`);
       }
       if (stock.quantityBottles < item.quantityBottles) {
-        throw new Error(
+        throw new ValidationError(
           `Not enough stock for product ${item.productId}: have ${stock.quantityBottles}, need ${item.quantityBottles}`
         );
       }
