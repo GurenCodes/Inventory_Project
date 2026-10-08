@@ -31,9 +31,9 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 9: security hardening | **VERIFIED — COMPLETE** |
 | Stage 10: deployment preparation | **VERIFIED — COMPLETE** |
 | Stage 11: production deployment & verification | **VERIFIED — COMPLETE** |
-| Missing routes, hardening, deployment, frontend | Not started |
+| Stage 12: frontend development | **PLANNED** |
 
-Git: Working directory clean. Modified: `server.js`, `InventoryManagement/Repository/Stock.js`, `InventoryManagement/Services/SaleService.js`, `InventoryManagement/Services/StockService.js`, `InventoryManagement/Repository/Product.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `InventoryManagement/Repository/Report.js`, `InventoryManagement/Repository/Sale.js`, `UserManagement/Repository/UserRepository.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `package.json`, `package-lock.json`, `PROJECT_CONTEXT.md`. New: `lib/prisma.js`, `tests/Authorization.test.js`, `tests/Stage8Api.test.js`, `tests/Stage9Security.test.js`. Untracked: `opencode_log.txt` (ignorable).
+Git: Working directory clean. Untracked: `opencode_log.txt` (ignorable), `tests/test-db-latency.js`, `tests/test-jwt-expiration.js`.
 
 ## 3. Stack and environment
 
@@ -858,7 +858,340 @@ Working tree clean (except opencode_log.txt ignored)
 
 ---
 
-## 8. Dates and timezones
+## 16. Stage 12 — Frontend Development Plan
+
+### 16.1 Recommended Frontend Stack
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| **Framework** | React 18 + TypeScript | Mature ecosystem, strong TypeScript support, excellent Vercel integration |
+| **Build Tool** | Vite | Fast HMR, optimized production builds, first-class TypeScript support |
+| **Routing** | React Router v6 | Declarative, nested routes, lazy loading support |
+| **State Management** | TanStack Query (React Query) + Zustand | Server state caching/synchronization + lightweight client state |
+| **UI Components** | Headless UI + Tailwind CSS | Accessible, unstyled components + utility-first styling, small bundle |
+| **Forms** | React Hook Form + Zod | Performant, type-safe validation with schema sharing |
+| **HTTP Client** | Axios (or Ky) | Interceptors for auth, retry logic, base URL config |
+| **Date/Time** | date-fns (or Day.js) | Lightweight, tree-shakeable, UTC-safe |
+| **Charts** | Recharts | Composable, SVG-based, responsive |
+| **Icons** | Lucide React | Consistent, tree-shakeable, lightweight |
+
+**Hosting:** Vercel (native Vite/React support, preview deployments, edge functions if needed)
+
+**Why not alternatives:**
+- Next.js: Overkill for a pure SPA backend-driven app; adds SSR complexity not needed
+- Redux/Zustand only: TanStack Query handles server state far better
+- Material UI / Chakra: Heavier; Tailwind + Headless UI gives more control with less weight
+
+### 16.2 Planned Pages & Routes (MVP → Full)
+
+| Route | Purpose | Auth | Role Access | API Endpoints |
+|-------|---------|------|-------------|---------------|
+| `/login` | Login form, JWT storage | Public | — | `POST /auth/login` |
+| `/` (Dashboard) | Overview: low-stock alerts, today's sales, quick actions | Private | ADMIN, MANAGER | `GET /products?includeInactive=false`, `GET /stock/low`, `GET /sales?status=completed` |
+| `/products` | Product catalog with search, filter, pagination | Private | ADMIN, MANAGER | `GET /products` |
+| `/products/new` | Create product (Admin only) | Private | ADMIN | `POST /products` |
+| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
+| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
+| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
+| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
+| `/stock` | Stock overview with search, low-stock filter | Private | ADMIN, MANAGER | `GET /products?includeInactive=true`, `GET /stock/:productId` |
+| `/stock/:productId` | Stock detail + receive stock | Private | ADMIN, MANAGER | `GET /stock/:productId`, `POST /stock/receive` |
+| `/stock/:productId/reorder-level` | Adjust reorder level (Admin) | Private | ADMIN | `PUT /stock/:productId/reorder-level` |
+| `/sales` | Sales history with filters (date, status, user) | Private | ADMIN, MANAGER | `GET /sales` |
+| `/sales/new` | Create sale (checkout) | Private | ADMIN, MANAGER | `POST /sales` |
+| `/sales/:id` | Sale detail + items + cancel action | Private | ADMIN, MANAGER | `GET /sales/:id`, `POST /sales/:id/cancel` |
+| `/reports` | Daily/weekly/monthly reports with date picker | Private | ADMIN, MANAGER | `GET /reports`, `GET /reports/daily`, `POST /reports/daily` |
+| `/reports/:date` | Single day report detail | Private | ADMIN, MANAGER | `GET /reports/:date` |
+| `/users` | User management (Admin only) | Private | ADMIN | `GET /users`, `POST /users` |
+| `/users/:id` | User detail (Admin) | Private | ADMIN | `GET /users/:id` |
+| `/users/:id/password` | Password reset (Admin) | Private | ADMIN | `PUT /users/:id/password` |
+| `/login` | Login page | Public | — | `POST /auth/login` |
+
+**Navigation:**
+- Persistent sidebar (collapsible on mobile)
+- Top bar: user avatar/name, role badge, logout
+- Role-aware: Admin-only links hidden from Manager
+
+### 16.3 API Integration Layer
+
+**File Structure (proposed):**
+```
+frontend/
+├── src/
+│   ├── api/
+│   │   ├── client.ts          # Axios instance with interceptors
+│   │   ├── endpoints.ts       # Endpoint constants + types
+│   │   ├── auth.ts            # Login, token refresh, logout
+│   │   ├── products.ts        # Product API
+│   │   ├── stock.ts           # Stock API
+│   │   ├── sales.ts           # Sales API
+│   │   ├── reports.ts         # Reports API
+│   │   └── users.ts           # Users API (admin)
+│   ├── components/
+│   │   ├── ui/                # Reusable UI primitives (Button, Input, Table, Modal, etc.)
+│   │   ├── layout/            # Sidebar, Header, Layout wrapper
+│   │   └── forms/             # Reusable form components
+│   ├── pages/
+│   │   ├── Login.tsx
+│   │   ├── Dashboard.tsx
+│   │   ├── Products.tsx
+│   │   ├── ProductDetail.tsx
+│   │   ├── ProductForm.tsx
+│   │   ├── Stock.tsx
+│   │   ├── StockDetail.tsx
+│   ├── Sales.tsx
+│   ├── SaleDetail.tsx
+│   ├── SaleForm.tsx
+│   ├── Reports.tsx
+│   ├── ReportDetail.tsx
+│   ├── Users.tsx
+│   ├── UserDetail.tsx
+│   └── Login.tsx
+│   ├── hooks/
+│   │   ├── useAuth.ts         # Auth state, login, logout, token refresh
+│   │   ├── usePermissions.ts  # Role-based UI helpers
+│   │   └── useDebounce.ts
+│   ├── store/
+│   │   ├── authStore.ts       # Zustand: user, token, login/logout
+│   │   └── uiStore.ts         # Sidebar, modals, toasts
+│   ├── types/
+│   │   └── api.ts             # Shared TypeScript types from API
+│   ├── utils/
+│   │   ├── date.ts            # UTC-safe formatting
+│   │   ├── currency.ts        # XAF formatting
+│   │   └── validation.ts      # Shared Zod schemas
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── vite-env.d.ts
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── tailwind.config.ts
+└── vercel.json
+```
+
+### 16.4 Authentication & Token Storage Strategy
+
+**Current Backend (Verified):**
+- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }`
+- JWT payload: `{ userId, role }`, expires in **8 hours** (`expiresIn: '8h'`)
+- Sent via `Authorization: Bearer <token>` header
+- `jwt.verify()` validates signature + expiration → 401 on expiry/malformed/invalid
+- No refresh token endpoint exists
+
+**Security Assessment:**
+| Aspect | Current | Risk |
+|--------|---------|------|
+| JWT in `localStorage` | ❌ Vulnerable to XSS | High |
+| JWT in `sessionStorage` | ⚠️ Slightly better | Medium |
+| HttpOnly + Secure + SameSite=Strict cookie | ✅ Best | Low |
+
+**Recommendation:** **HttpOnly + Secure + SameSite=Strict cookies** for production.
+
+**Required Backend Changes (to be done before/with frontend):**
+
+1. **Add cookie-based auth endpoint** (alongside existing Bearer token):
+   ```javascript
+   // server.js - add to /auth/login response
+   res.cookie('token', token, {
+     httpOnly: true,
+     secure: true,           // HTTPS only
+     sameSite: 'strict',     // CSRF protection
+     maxAge: 8 * 60 * 60 * 1000, // 8 hours
+     path: '/'
+   });
+   ```
+
+2. **Update `authenticateToken` middleware** to read from cookie first:
+   ```javascript
+   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+   ```
+
+3. **Add logout endpoint** (clears cookie):
+   ```javascript
+   app.post('/auth/logout', (req, res) => {
+     res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'strict' });
+     res.json({ ok: true });
+   }
+   ```
+
+4. **CORS credentials** (in server.js):
+   ```javascript
+   // CORS middleware update
+   if (isAllowed) {
+     res.header('Access-Control-Allow-Credentials', 'true');
+     // ...
+   }
+   ```
+
+5. **Frontend login** → `credentials: 'include'` on all requests.
+
+**Frontend Token Handling (Interim until cookie migration):**
+- Store JWT in memory (React state) + persist in `sessionStorage` for tab restore
+- **Never** use `localStorage`
+- Auto-refresh not needed with 8h expiry; redirect to `/login` on 401
+
+**Migration Path:** Deploy cookie support alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
+
+### 16.5 Vercel Deployment & CORS Configuration
+
+**Current Backend CORS (server.js):**
+```javascript
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+```
+
+**Required Changes for Production:**
+1. **Set `ALLOWED_ORIGINS` in Render dashboard:**
+   ```
+   ALLOWED_ORIGINS=https://app.floramagg.com,https://admin.floramagg.com
+   ```
+   (Replace with actual Vercel deployment URLs)
+
+2. **Enable credentials in CORS (server.js):**
+   ```javascript
+   // CORS middleware update
+   if (isAllowed) {
+     res.header('Access-Control-Allow-Credentials', 'true');
+     // ...
+   }
+   ```
+
+3. **Frontend `vercel.json`:**
+   ```json
+   {
+     "framework": "vite",
+     "buildCommand": "npm run build",
+     "devCommand": "npm run dev",
+     "installCommand": "npm ci",
+     "headers": [
+       {
+         "source": "/(.*)",
+         "headers": [
+           { "key": "X-Content-Type-Options", "value": "nosniff" },
+           { "key": "X-Frame-Options", "value": "DENY" },
+           { "key": "Referrer-Policy", "value": "no-referrer" }
+         ]
+       }
+     ]
+   }
+   ```
+
+4. **Vercel Project Settings:**
+   - Framework Preset: Vite
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+   - Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com`
+
+### 16.6 Required Backend Changes (Pre-Frontend)
+
+| Change | File | Priority | Status |
+|--------|------|----------|--------|
+| Add cookie support to `/auth/login` | `server.js` | **Required** | ☐ Pending |
+| Add `/auth/logout` endpoint | `server.js` | **Required** | ☐ Pending |
+| Update `authenticateToken` to read cookie | `server.js` | **Required** | ☐ Pending |
+| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ☐ Pending |
+| Add `/auth/logout` route | `server.js` | **Required** | ☐ Pending |
+| Increase Prisma transaction timeout (DONE) | `SaleService.js` | ✅ Done | ✅ Done |
+| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending |
+
+### 16.7 Stage 12 Implementation Sequence
+
+| Phase | Tasks | Deliverable |
+|-------|-------|-------------|
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment |
+| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes |
+| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav |
+| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard |
+| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management |
+| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete |
+| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow |
+| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete |
+| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete |
+| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI |
+| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel |
+
+**Estimated Effort:** ~10-14 days for MVP (Phases 0-6), +3-5 days for polish/deploy.
+
+### 16.8 Open Questions / Decisions Needed
+
+| Question | Recommendation | Decision Required |
+|----------|----------------|-------------------|
+| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in Stage 13 | ☐ Confirm |
+| Cookie migration: simultaneous Bearer + cookie, or hard cut? | Simultaneous support (backend reads both), frontend prefers cookie | ☐ Confirm |
+| Refresh token? | Defer to Stage 13 (add refresh endpoint + silent refresh) | ☐ Defer |
+| Real-time updates (stock/sales)? | Defer: polling (30s) or SSE; WebSocket overkill for now | ☐ Defer |
+| Offline support? | Not needed (internal app, stable connectivity) | ✅ Confirmed |
+| Barcode scanning (camera)? | Defer to Stage 13+ (native capability) | ☐ Defer |
+
+---
+
+## 17. Stage 13 — Frontend Deployment (Vercel)
+
+| Step | Action |
+|------|--------|
+| 1 | Push frontend repo to GitHub (separate repo or monorepo) |
+| 2 | Import in Vercel → Framework: Vite |
+| 3 | Set Build Command: `npm run build`, Output: `dist` |
+| 4 | Add Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com` |
+| 4 | Configure Custom Domain (optional): `app.floramagg.com` |
+| 5 | Update Render `ALLOWED_ORIGINS` with Vercel domain(s) |
+| 6 | Enable Vercel Analytics/Speed Insights (optional) |
+
+---
+
+## 18. Pre-deployment Checklist (Updated)
+
+- [ ] Remove or change all seeded logins and passwords; create real Admin accounts.
+- [ ] Strong `JWT_SECRET`; set all env vars on the host (never commit `.env`).
+- [ ] **Resolve K1–K5.** (K1-K3, K7, K8 done; K4 done in Stage 7; K5 pending)
+- [ ] CORS limited to the frontend's origin; `helmet`; login rate limiting.
+- [ ] Build step runs `npx prisma generate`; schema applied with `npx prisma migrate deploy`.
+- [ ] Separate dev and production databases; Aiven backups understood.
+- [ ] Decide timezone handling (K10) before the first real daily close-out.
+- [ ] **Frontend: Cookie auth implemented and tested.**
+- [ ] **Frontend: CORS configured for production origins.**
+- [ ] **Frontend: Deployed to Vercel and verified.**
+
+---
+
+## 19. Stage 11 Follow-up Summary (Completed)
+
+| Item | Status |
+|------|--------|
+| Flaky test root cause | Prisma transaction timeout (5s) < Aiven latency (3-4s/query) |
+| Fix applied | Transaction timeout increased to 60s in `SaleService.js` |
+| Test result | 260/260 tests pass consistently |
+| JWT audit | Complete — 8h expiry, HS256, secure transport, HttpOnly cookie migration planned |
+| Security controls | 15/15 verified |
+| Total tests | 260/260 passing |
+| Render service | Live at https://inventory-project-6szy.onrender.com |
+| Git | Clean, pushed to `origin/main` |
+
+**Final Verdict:** **STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12.
+
+---
+
+## 18. Next Steps
+
+1. **Implement cookie-based auth** (backend changes listed in §16.4)
+2. **Initialize frontend repo** with Vite + React + TypeScript + Tailwind
+3. **Implement Phase 0-2** (Auth + Layout + Dashboard)
+4. **Iterate through phases** per §16.7
+5. **Deploy to Vercel** → update `ALLOWED_ORIGINS` → verify CORS + cookies
+
+---
+
+## FINAL VERDICT
+
+**STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12 (Frontend Development).
+
+**Render service has NOT been created or deployed during this step.**  
+The service was already deployed; this step completed verification and fixed the flaky test.
+
+**Next Step:** Begin Stage 12 — Frontend Development.
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
 - Never use local-time methods (`setHours`, `setDate`) on dates. Use `setUTCHours`, `setUTCDate`, or ISO strings.
@@ -921,11 +1254,393 @@ Preferences of the project owner: plain-language explanation before code, step-b
 2. **Stage 7 — roles:** `requireRole` middleware. **VERIFIED AFTER REMEDIATION.** 14 protected routes enforced: Admin-only (POST /products, POST /products/:id/discontinue, POST /products/:id/reactivate, POST /sales/:id/cancel); Admin+Manager (GET /products, GET /stock/low, POST /stock/receive, POST /sales, GET /sales, GET /sales/:id, POST /reports/daily, GET /reports/:date, GET /reports). 56 authorization tests, 196 total tests pass.
 3. **Stage 8 — missing routes and user management:** **VERIFIED — COMPLETE.** 8 new routes added (2 product, 2 stock, 4 user management). All 22 protected routes enforced. 48 Stage 8 API tests, 244 total tests pass. K9 resolved.
 4. **Stage 9 — hardening:** **VERIFIED — COMPLETE.** K1 (server-side pricing), K2 (atomic stock decrement), K3 (cancellation restocks), K7 (crate/bottle consistency), K8 (shared PrismaClient), plus `helmet`, `cors`, login rate limiting, body size limit, request validation. 15 security controls verified. 260 total tests pass. K1/K2/K3/K7/K8 resolved.
-5. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved.
-6. **Stage 11 — production deployment & verification:** **VERIFIED — COMPLETE.** Production database migrations applied via Render Shell, Render Web Service Live, health check verified, 260 total tests pass, all security controls active.
-7. **Stage 12 — frontend:** (section 15).
+4. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved.
+5. **Stage 11 — production deployment & verification:** **VERIFIED — COMPLETE.** Production database migrations applied via Render Shell, Render Web Service Live, health check verified, 260 total tests pass, all security controls active.
+6. **Stage 12 — frontend development:** **PLANNED**. See Section 16 for detailed plan.
+7. **Stage 13 — frontend deployment:** Vercel deployment, CI/CD pipeline.
 
 Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, expiry alerts via `findExpiringBefore`, low-stock notifications (email/WhatsApp), CSV/PDF report export, audit log, price history, barcode scanning, OpenAPI docs.
+
+## 16. Stage 12 — Frontend Development Plan
+
+### 16.1 Recommended Frontend Stack
+
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| **Framework** | React 18 + TypeScript | Mature ecosystem, strong TypeScript support, excellent Vercel integration |
+| **Build Tool** | Vite | Fast HMR, optimized production builds, first-class TypeScript support |
+| **Routing** | React Router v6 | Declarative, nested routes, lazy loading support |
+| **State Management** | TanStack Query (React Query) + Zustand | Server state caching/synchronization + lightweight client state |
+| **UI Components** | Headless UI + Tailwind CSS | Accessible, unstyled components + utility-first styling, small bundle |
+| **Forms** | React Hook Form + Zod | Performant, type-safe validation with schema sharing |
+| **HTTP Client** | Axios (or Ky) | Interceptors for auth, retry logic, base URL config |
+| **Date/Time** | date-fns (or Day.js) | Lightweight, tree-shakeable, UTC-safe |
+| **Charts** | Recharts | Composable, SVG-based, responsive |
+| **Icons** | Lucide React | Consistent, tree-shakeable, lightweight |
+
+**Hosting:** Vercel (native Vite/React support, preview deployments, edge functions if needed)
+
+**Why not alternatives:**
+- Next.js: Overkill for a pure SPA backend-driven app; adds SSR complexity not needed
+- Redux/Zustand only: TanStack Query handles server state far better
+- Material UI / Chakra: Heavier; Tailwind + Headless UI gives more control with less weight
+
+### 16.2 Planned Pages & Routes (MVP → Full)
+
+| Route | Purpose | Auth | Role Access | API Endpoints |
+|-------|---------|------|-------------|---------------|
+| `/login` | Login form, JWT storage | Public | — | `POST /auth/login` |
+| `/` (Dashboard) | Overview: low-stock alerts, today's sales, quick actions | Private | ADMIN, MANAGER | `GET /products?includeInactive=false`, `GET /stock/low`, `GET /sales?status=completed` |
+| `/products` | Product catalog with search, filter, pagination | Private | ADMIN, MANAGER | `GET /products` |
+| `/products/new` | Create product (Admin only) | Private | ADMIN | `POST /products` |
+| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
+| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
+| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
+| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
+| `/stock` | Stock overview with search, low-stock filter | Private | ADMIN, MANAGER | `GET /products?includeInactive=true`, `GET /stock/:productId` |
+| `/stock/:productId` | Stock detail + receive stock | Private | ADMIN, MANAGER | `GET /stock/:productId`, `POST /stock/receive` |
+| `/stock/:productId/reorder-level` | Adjust reorder level (Admin) | Private | ADMIN | `PUT /stock/:productId/reorder-level` |
+| `/sales` | Sales history with filters (date, status, user) | Private | ADMIN, MANAGER | `GET /sales` |
+| `/sales/new` | Create sale (checkout) | Private | ADMIN, MANAGER | `POST /sales` |
+| `/sales/:id` | Sale detail + items + cancel action | Private | ADMIN, MANAGER | `GET /sales/:id`, `POST /sales/:id/cancel` |
+| `/reports` | Daily/weekly/monthly reports with date picker | Private | ADMIN, MANAGER | `GET /reports`, `GET /reports/daily`, `POST /reports/daily` |
+| `/reports/:date` | Single day report detail | Private | ADMIN, MANAGER | `GET /reports/:date` |
+| `/users` | User management (Admin only) | Private | ADMIN | `GET /users`, `POST /users` |
+| `/users/:id` | User detail (Admin) | Private | ADMIN | `GET /users/:id` |
+| `/users/:id/password` | Password reset (Admin) | Private | ADMIN | `PUT /users/:id/password` |
+| `/login` | Login page | Public | — | `POST /auth/login` |
+
+**Navigation:**
+- Persistent sidebar (collapsible on mobile)
+- Top bar: user avatar/name, role badge, logout
+- Role-aware: Admin-only links hidden from Manager
+
+### 16.3 API Integration Layer
+
+**File Structure (proposed):**
+```
+frontend/
+├── src/
+│   ├── api/
+│   │   ├── client.ts          # Axios instance with interceptors
+│   │   ├── endpoints.ts       # Endpoint constants + types
+│   │   ├── auth.ts            # Login, token refresh, logout
+│   │   ├── products.ts        # Product API
+│   │   ├── stock.ts           # Stock API
+│   │   ├── sales.ts           # Sales API
+│   │   ├── reports.ts         # Reports API
+│   │   └── users.ts           # Users API (admin)
+│   ├── components/
+│   │   ├── ui/                # Reusable UI primitives (Button, Input, Table, Modal, etc.)
+│   │   ├── layout/            # Sidebar, Header, Layout wrapper
+│   │   └── forms/             # Reusable form components
+│   ├── pages/
+│   │   ├── Login.tsx
+│   │   ├── Dashboard.tsx
+│   │   ├── Products.tsx
+│   │   ├── ProductDetail.tsx
+│   │   ├── ProductForm.tsx
+│   │   ├── Stock.tsx
+│   │   ├── StockDetail.tsx
+│   │   ├── Sales.tsx
+│   │   ├── SaleDetail.tsx
+│   │   ├── SaleForm.tsx
+│   │   ├── Reports.tsx
+│   │   ├── ReportDetail.tsx
+│   │   ├── Users.tsx
+│   │   ├── UserDetail.tsx
+│   │   └── Login.tsx
+│   ├── hooks/
+│   │   ├── useAuth.ts         # Auth state, login, logout, token refresh
+│   │   ├── usePermissions.ts  # Role-based UI helpers
+│   │   └── useDebounce.ts
+│   ├── store/
+│   │   ├── authStore.ts       # Zustand: user, token, login/logout
+│   │   └── uiStore.ts         # Sidebar, modals, toasts
+│   ├── types/
+│   │   └── api.ts             # Shared TypeScript types from API
+│   ├── utils/
+│   │   ├── date.ts            # UTC-safe formatting
+│   │   ├── currency.ts        # XAF formatting
+│   │   └── validation.ts      # Shared Zod schemas
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── vite-env.d.ts
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── tailwind.config.ts
+└── vercel.json
+```
+
+### 16.4 Authentication & Token Storage Strategy
+
+**Current Backend (Verified):**
+- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }`
+- JWT payload: `{ userId, role }`, expires in **8 hours** (`expiresIn: '8h'`)
+- Sent via `Authorization: Bearer <token>` header
+- `jwt.verify()` validates signature + expiration → 401 on expiry/malformed/invalid
+- No refresh token endpoint exists
+
+**Security Assessment:**
+| Aspect | Current | Risk |
+|--------|---------|------|
+| JWT in `localStorage` | ❌ Vulnerable to XSS | High |
+| JWT in `sessionStorage` | ⚠️ Slightly better | Medium |
+| HttpOnly + Secure + SameSite=Strict cookie | ✅ Best | Low |
+
+**Recommendation:** **HttpOnly + Secure + SameSite=Strict cookies** for production.
+
+**Required Backend Changes (to be done before/with frontend):**
+
+1. **Add cookie-based auth endpoint** (alongside existing Bearer token):
+   ```javascript
+   // server.js - add to /auth/login response
+   res.cookie('token', token, {
+     httpOnly: true,
+     secure: true,           // HTTPS only
+     sameSite: 'strict',     // CSRF protection
+     maxAge: 8 * 60 * 60 * 1000, // 8 hours
+     path: '/'
+   });
+   ```
+
+2. **Update `authenticateToken` middleware** to read from cookie first:
+   ```javascript
+   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+   ```
+
+3. **Add logout endpoint** (clears cookie):
+   ```javascript
+   app.post('/auth/logout', (req, res) => {
+     res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'strict' });
+     res.json({ ok: true });
+   }
+   ```
+
+4. **CORS credentials** (in server.js):
+   ```javascript
+   // CORS middleware update
+   if (isAllowed) {
+     res.header('Access-Control-Allow-Credentials', 'true');
+     // ...
+   }
+   ```
+
+5. **Frontend login** → `credentials: 'include'` on all requests.
+
+**Frontend Token Handling (Interim until cookie migration):**
+- Store JWT in memory (React state) + persist in `sessionStorage` for tab restore
+- **Never** use `localStorage`
+- Auto-refresh not needed with 8h expiry; redirect to `/login` on 401
+
+**Migration Path:** Deploy cookie support alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
+
+### 16.5 Vercel Deployment & CORS Configuration
+
+**Current Backend CORS (server.js):**
+```javascript
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+```
+
+**Required Changes for Production:**
+1. **Set `ALLOWED_ORIGINS` in Render dashboard:**
+   ```
+   ALLOWED_ORIGINS=https://app.floramagg.com,https://admin.floramagg.com
+   ```
+   (Replace with actual Vercel deployment URLs)
+
+2. **Enable credentials in CORS (server.js):**
+   ```javascript
+   // CORS middleware update
+   if (isAllowed) {
+     res.header('Access-Control-Allow-Credentials', 'true');
+     // ...
+   }
+   ```
+
+3. **Frontend `vercel.json`:**
+   ```json
+   {
+     "framework": "vite",
+     "buildCommand": "npm run build",
+     "devCommand": "npm run dev",
+     "installCommand": "npm ci",
+     "headers": [
+       {
+         "source": "/(.*)",
+         "headers": [
+           { "key": "X-Content-Type-Options", "value": "nosniff" },
+           { "key": "X-Frame-Options", "value": "DENY" },
+           { "key": "Referrer-Policy", "value": "no-referrer" }
+         ]
+       }
+     ]
+   }
+   ```
+
+4. **Vercel Project Settings:**
+   - Framework Preset: Vite
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+   - Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com`
+
+### 16.6 Required Backend Changes (Pre-Frontend)
+
+| Change | File | Priority | Status |
+|--------|------|----------|--------|
+| Add cookie support to `/auth/login` | `server.js` | **Required** | ☐ Pending |
+| Add `/auth/logout` endpoint | `server.js` | **Required** | ☐ Pending |
+| Update `authenticateToken` to read cookie | `server.js` | **Required** | ☐ Pending |
+| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ☐ Pending |
+| Add `/auth/logout` route | `server.js` | **Required** | ☐ Pending |
+| Increase Prisma transaction timeout (DONE) | `SaleService.js` | ✅ Done | ✅ Done |
+| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending |
+
+### 16.7 Stage 12 Implementation Sequence
+
+| Phase | Tasks | Deliverable |
+|-------|-------|-------------|
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment |
+| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes |
+| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav |
+| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard |
+| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management |
+| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete |
+| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow |
+| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete |
+| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete |
+| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI |
+| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel |
+
+**Estimated Effort:** ~10-14 days for MVP (Phases 0-6), +3-5 days for polish/deploy.
+
+### 16.8 Open Questions / Decisions Needed
+
+| Question | Recommendation | Decision Required |
+|----------|----------------|-------------------|
+| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in Stage 13 | ☐ Confirm |
+| Cookie migration: simultaneous Bearer + cookie, or hard cut? | Simultaneous support (backend reads both), frontend prefers cookie | ☐ Confirm |
+| Refresh token? | Defer to Stage 13 (add refresh endpoint + silent refresh) | ☐ Defer |
+| Real-time updates (stock/sales)? | Defer: polling (30s) or SSE; WebSocket overkill for now | ☐ Defer |
+| Offline support? | Not needed (internal app, stable connectivity) | ✅ Confirmed |
+| Barcode scanning (camera)? | Defer to Stage 13+ (native capability) | ☐ Defer |
+
+---
+
+## 17. Stage 13 — Frontend Deployment (Vercel)
+
+| Step | Action |
+|------|--------|
+| 1 | Push frontend repo to GitHub (separate repo or monorepo) |
+| 2 | Import in Vercel → Framework: Vite |
+| 3 | Set Build Command: `npm run build`, Output: `dist` |
+| 4 | Add Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com` |
+| 5 | Configure Custom Domain (optional): `app.floramagg.com` |
+| 6 | Update Render `ALLOWED_ORIGINS` with Vercel domain(s) |
+| 7 | Enable Vercel Analytics/Speed Insights (optional) |
+
+---
+
+## 18. Pre-deployment Checklist (Updated)
+
+- [ ] Remove or change all seeded logins and passwords; create real Admin accounts.
+- [ ] Strong `JWT_SECRET`; set all env vars on the host (never commit `.env`).
+- [ ] **Resolve K1–K5.** (K1-K3, K7, K8 done; K4 done in Stage 7; K5 pending)
+- [ ] CORS limited to the frontend's origin; `helmet`; login rate limiting.
+- [ ] Build step runs `npx prisma generate`; schema applied with `npx prisma migrate deploy`.
+- [ ] Separate dev and production databases; Aiven backups understood.
+- [ ] Decide timezone handling (K10) before the first real daily close-out.
+- [ ] **Frontend: Cookie auth implemented and tested.**
+- [ ] **Frontend: CORS configured for production origins.**
+- [ ] **Frontend: Deployed to Vercel and verified.**
+
+---
+
+## 19. Stage 11 Follow-up Summary (Completed)
+
+| Item | Status |
+|------|--------|
+| Flaky test root cause | Prisma transaction timeout (5s) < Aiven latency (3-4s/query) |
+| Fix applied | Transaction timeout increased to 60s in `SaleService.js` |
+| Test result | 260/260 tests pass consistently |
+| JWT audit | Complete — 8h expiry, HS256, secure transport, HttpOnly cookie migration planned |
+| Security controls | 15/15 verified |
+| Total tests | 260/260 passing |
+| Render service | Live at https://inventory-project-6szy.onrender.com |
+| Git | Clean, pushed to `origin/main` |
+
+**Final Verdict:** **STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12.
+
+---
+
+## 17. Stage 13 — Frontend Deployment (Vercel)
+
+| Step | Action |
+|------|--------|
+| 1 | Push frontend repo to GitHub (separate repo or monorepo) |
+| 2 | Import in Vercel → Framework: Vite |
+| 3 | Set Build Command: `npm run build`, Output: `dist` |
+| 4 | Add Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com` |
+| 4 | Configure Custom Domain (optional): `app.floramagg.com` |
+| 5 | Update Render `ALLOWED_ORIGINS` with Vercel domain(s) |
+| 6 | Enable Vercel Analytics/Speed Insights (optional) |
+
+---
+
+## 18. Pre-deployment Checklist (Updated)
+
+- [ ] Remove or change all seeded logins and passwords; create real Admin accounts.
+- [ ] Strong `JWT_SECRET`; set all env vars on the host (never commit `.env`).
+- [ ] **Resolve K1–K5.** (K1-K3, K7, K8 done; K4 done in Stage 7; K5 pending)
+- [ ] CORS limited to the frontend's origin; `helmet`; login rate limiting.
+- [ ] Build step runs `npx prisma generate`; schema applied with `npx prisma migrate deploy`.
+- [ ] Separate dev and production databases; Aiven backups understood.
+- [ ] Decide timezone handling (K10) before the first real daily close-out.
+- [ ] **Frontend: Cookie auth implemented and tested.**
+- [ ] **Frontend: CORS configured for production origins.**
+- [ ] **Frontend: Deployed to Vercel and verified.**
+
+---
+
+## 19. Stage 11 Follow-up Summary (Completed)
+
+| Item | Status |
+|------|--------|
+| Flaky test root cause | Prisma transaction timeout (5s) < Aiven latency (3-4s/query) |
+| Fix applied | Transaction timeout increased to 60s in `SaleService.js` |
+| Test result | 260/260 tests pass consistently |
+| JWT audit | Complete — 8h expiry, HS256, secure transport, HttpOnly cookie migration planned |
+| Security controls | 15/15 verified |
+| Total tests | 260/260 passing |
+| Render service | Live at https://inventory-project-6szy.onrender.com |
+| Git | Clean, pushed to `origin/main` |
+
+**Final Verdict:** **STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12.
+
+---
+
+## 18. Next Steps
+
+1. **Implement cookie-based auth** (backend changes listed in §16.4)
+2. **Initialize frontend repo** with Vite + React + TypeScript + Tailwind
+3. **Implement Phase 0-2** (Auth + Layout + Dashboard)
+4. **Iterate through phases** per §16.7
+5. **Deploy to Vercel** → update `ALLOWED_ORIGINS` → verify CORS + cookies
+
+---
+
+## FINAL VERDICT
+
+**STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12 (Frontend Development).
+
+**Render service has NOT been created or deployed during this step.**  
+The service was already deployed; this step completed verification and fixed the flaky test.
+
+**Next Step:** Begin Stage 12 — Frontend Development.
 
 ## 14. Pre-deployment checklist
 
