@@ -11,6 +11,8 @@ require('dotenv').config();
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const { 
   ValidationError, 
@@ -29,7 +31,92 @@ const saleService = require('./InventoryManagement/Services/SaleService');
 const reportService = require('./InventoryManagement/Services/ReportService');
 
 const app = express();
-app.use(express.json());
+
+// Login rate limiter (Stage 9)
+// Limit: 5 attempts per 15 minutes per IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts
+  message: { error: 'Too many login attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip successful requests from counting
+  skipSuccessfulRequests: true,
+  // Use built-in key generator that handles IPv6 properly
+  // keyGenerator: rateLimit.ipKeyGenerator, // Default, handles IPv6
+  // Handler for when limit is exceeded
+  handler: (req, res) => {
+    res.status(429).json({ error: 'Too many login attempts, please try again later' });
+  },
+});
+
+// Security headers (Stage 9 - Helmet)
+app.use(helmet({
+  // Prevent framing - deny all framing (more secure than SAMEORIGIN)
+  frameguard: { action: 'deny' },
+  // Prevent MIME type sniffing
+  noSniff: true,
+  // XSS filter (legacy but harmless)
+  xssFilter: true,
+  // Referrer policy
+  referrerPolicy: { policy: 'no-referrer' },
+  // HSTS
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: false,
+  },
+  // Cross-origin policies
+  crossOriginEmbedderPolicy: false, // Disable for API compatibility
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+  // DNS prefetch control
+  dnsPrefetchControl: { allow: false },
+  // Expect-CT
+  expectCt: false,
+  // Feature policy / Permissions policy
+  hidePoweredBy: true,
+  ieNoOpen: true,
+  noSniff: true,
+  xssFilter: true,
+}));
+
+// CORS configuration (Stage 9) - Manual implementation for full control
+// Allowed origins from environment variable, default to localhost for development
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+// Manual CORS middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Check if origin is allowed
+  const isAllowed = !origin || allowedOrigins.includes(origin);
+  
+  if (isAllowed) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    res.header('Access-Control-Max-Age', '86400');
+  } else {
+    // Origin not allowed - reject all requests
+    return res.status(403).json({ error: 'Not allowed by CORS' });
+  }
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    if (isAllowed) {
+      return res.sendStatus(204);
+    }
+    return res.status(403).json({ error: 'Not allowed by CORS' });
+  }
+  
+  next();
+});
+
+app.use(express.json({ limit: '100kb' }));
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -46,7 +133,8 @@ app.get('/health', (req, res) => {
 
 // POST /auth/login (Stage 2)
 // Accepts email/password, returns JWT + user info on success
-app.post('/auth/login', async (req, res, next) => {
+// Rate limited: 5 attempts per 15 minutes per IP (Stage 9)
+app.post('/auth/login', loginLimiter, async (req, res, next) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -469,6 +557,11 @@ app.use((err, req, res, next) => {
   // Prisma foreign key constraint violation (P2003)
   if (err.code === 'P2003') {
     return res.status(400).json({ error: 'Referenced record does not exist' });
+  }
+  
+  // Request body too large (express.json limit)
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request body too large' });
   }
   
   // Known application errors

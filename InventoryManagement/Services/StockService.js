@@ -1,6 +1,7 @@
 // InventoryManagement/Service/StockService.js
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// Uses shared PrismaClient (K8 fix)
+
+const prisma = require('../../lib/prisma');
 
 const stockRepository = require('../Repository/Stock');
 const itemBatchOrderRepository = require('../Repository/ItemBatchOrder');
@@ -71,6 +72,17 @@ class StockService {
     ]);
 
     return { batchOrder, updatedStock };
+  }
+
+  // K7 fix: Increment stock by bottles and update crates accordingly
+  // Uses product's crateSize to keep crates in sync with bottles
+  async incrementStock(productId, bottleDelta, crateSize) {
+    return stockRepository.incrementBottlesAndCrates(productId, bottleDelta, crateSize);
+  }
+
+  // K7 fix: Decrement stock by bottles and update crates accordingly
+  async decrementStock(productId, bottleDelta, crateSize) {
+    return stockRepository.decrementBottlesAndCrates(productId, bottleDelta, crateSize);
   }
 
   async getStockForProduct(productId) {

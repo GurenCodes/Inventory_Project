@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-07. State: Stage 8 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 244 total tests passing.
+Last updated: 2026-10-08. State: Stage 9 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 15 Stage 9 security controls, 260 total tests passing.
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -28,13 +28,15 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 6: error handling pass | **Done** |
 | Stage 7: role-based restrictions | **VERIFIED AFTER REMEDIATION** |
 | Stage 8: missing routes & user management | **VERIFIED — COMPLETE** |
+| Stage 9: security hardening | **VERIFIED — COMPLETE** |
 | Missing routes, hardening, deployment, frontend | Not started |
 
-Git: Working directory clean except for Stage 8 changes. Modified: `server.js`. New: `tests/Stage8Api.test.js`. Untracked: `opencode_log.txt` (ignorable).
+Git: Working directory clean except for Stage 9 changes. Modified: `server.js`, `InventoryManagement/Repository/Stock.js`, `InventoryManagement/Services/SaleService.js`, `InventoryManagement/Services/StockService.js`, `InventoryManagement/Repository/Product.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `InventoryManagement/Repository/Report.js`, `InventoryManagement/Repository/Sale.js`, `UserManagement/Repository/UserRepository.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `package.json`, `package-lock.json`. New: `lib/prisma.js`, `tests/Authorization.test.js`, `tests/Stage8Api.test.js`, `tests/Stage9Security.test.js`. Untracked: `opencode_log.txt` (ignorable).
 
 ## 3. Stack and environment
 
 - Node.js v24.19.0 (CommonJS), Express 5.2.x, Prisma **6.19.x**, PostgreSQL on Aiven (shared with a collaborator), jsonwebtoken 9, bcrypt 6, dotenv.
+- **Stage 9 dependencies**: `helmet` (security headers), `cors` (CORS), `express-rate-limit` (rate limiting).
 - Tools: VS Code, pgAdmin4, opencode 1.18.x using NVIDIA Nemotron 3 Ultra 550B. OS: Windows (PowerShell / cmd).
 - `.env` (never commit): `DATABASE_URL` (Aiven string, `sslmode=require`), `JWT_SECRET`, optional `PORT` (default 3000). The Aiven database is named `defaultdb`.
 - Commands: `npm start` | `npx prisma generate` (after any schema change) | `npx prisma migrate dev --name <name>` (dev) | `npx prisma migrate deploy` (hosted) | `node seed.js` (**DESTRUCTIVE**) | `node tests/<Name>.test.js`.
@@ -48,6 +50,8 @@ Flow: HTTP route (`server.js`) → Service → Repository → Prisma → Postgre
 Drinks-shop/
 ├── server.js                     all routes + JWT middleware (split into files later)
 ├── seed.js                       DESTRUCTIVE: wipes all tables, then seeds 10 rows each
+├── lib/                          shared PrismaClient (K8 fix)
+│   └── prisma.js                 shared PrismaClient instance
 ├── InventoryManagement/
 │   ├── Repository/   Product.js Stock.js ItemBatchOrder.js Sale.js SaleItem.js Report.js
 │   └── Services/     ProductService.js StockService.js SaleService.js ReportService.js
@@ -413,6 +417,135 @@ No database schema changes required for Stage 8. All routes use existing models 
 
 ---
 
+## 7d. Stage 9 — Security Hardening (VERIFIED — COMPLETE)
+
+### Scope
+
+Stage 9 hardens the existing API against the remaining security, concurrency, input-size, and infrastructure risks identified in the known issues (K1–K8):
+
+| Issue | Fix | Verification |
+|---|---|---|
+| K1 — Client-controlled sale unitPrice | Server reads price from `Product.unitPrice`; client `unitPrice` ignored | SaleService tests verify server-side pricing |
+| K2 — Concurrent sales oversell stock | Atomic conditional decrement using `updateMany` with `quantityBottles >= qty` | SaleService tests verify conditional decrement |
+| K3 — Sale cancellation unsafe/unclear | Only completed sales cancellable; restocks atomically; already-cancelled rejected | SaleService tests verify restock & status change |
+| K7 — quantityCrates drifts from bottles | Crates recalculated from bottles on every change (`Math.floor(bottles / crateSize)`) | SaleService & StockService tests verify consistency |
+| K8 — Multiple PrismaClient instances | Single shared `lib/prisma.js` instance used by all repositories | Repository imports verified |
+| Helmet | Security headers (CSP, HSTS, frameguard, etc.) | Header inspection test |
+| CORS | Configurable allowed origins; preflight support; credentials=false | Origin/preflight tests |
+| Login rate limiting | 5 attempts / 15 min per IP; 429 on exceed | Rate limit test (5 OK, 6th = 429) |
+| Request body size limit | 100kb limit; 413 on oversized | Body size test (100kb OK, 150kb = 413) |
+
+### Implementation Details
+
+All hardening follows the established architecture:
+
+```text
+Request
+  ↓
+helmet()                    // Security headers
+  ↓
+CORS middleware             // Origin validation
+  ↓
+express.json({limit:100kb}) // Body size limit
+  ↓
+authenticateToken           // JWT validation
+  ↓
+requireRole(...)            // Role authorization
+  ↓
+loginLimiter (login only)   // Rate limiting
+  ↓
+validation                  // Input validation
+  ↓
+service                     // Business logic
+  ↓
+repository/database         // Data access
+  ↓
+centralized error middleware
+  ↓
+Response
+```
+
+### Key Implementation Decisions
+
+1. **Helmet** — Applied globally with frameguard DENY, CSP, HSTS, noSniff, referrerPolicy no-referrer, cross-origin policies
+2. **CORS** — Manual middleware (not `cors` package) for full control; configurable `ALLOWED_ORIGINS` env var; preflight support; no credentials
+3. **Rate limiting** — `express-rate-limit` on `/auth/login` only; 5 attempts/15min; skips successful requests; proper IPv6 handling
+4. **Body size limit** — `express.json({limit: '100kb'})`; 413 response via centralized error handler
+5. **K1 fix** — `completeSale` reads `unitPrice` from `Product` server-side; client-supplied ignored
+6. **K2 fix** — Atomic stock decrement via `updateMany` with `gte` check inside transaction; rolls back on zero rows
+7. **K3 fix** — `cancelSale` only for `completed` sales; atomically restocks + updates status; rejects already-cancelled/pending
+8. **K7 fix** — Crates recalculated from bottles on every stock change (`Math.floor(bottles / crateSize)`)
+9. **K8 fix** — Single shared `lib/prisma.js` instance; all repositories import from there
+
+### Stage 9 Test Results
+
+| Test Suite | Total | Passed | Failed | Errors | Skipped | Status |
+|---|---:|---:|---:|---:|---:|---|
+| Stage 9 Security Controls | 15 | 15 | 0 | 0 | 0 | PASS |
+| Stage 8 API | 48 | 48 | 0 | 0 | 0 | PASS |
+| Authorization (Stage 7) | 56 | 56 | 0 | 0 | 0 | PASS |
+| ProductService | 36 | 36 | 0 | 0 | 0 | PASS |
+| StockService | 28 | 28 | 0 | 0 | 0 | PASS |
+| SaleService | 32 | 32 | 0 | 0 | 0 | PASS |
+| ReportService | 21 | 21 | 0 | 0 | 0 | PASS |
+| AuthService | 23 | 23 | 0 | 0 | 0 | PASS |
+| **TOTAL** | **260** | **260** | **0** | **0** | **0** | **PASS** |
+
+**260/260 tests passed.**
+
+### Stage 9 Security Control Coverage (15 tests)
+
+- **Helmet**: X-Content-Type-Options=nosniff, X-Frame-Options=DENY, CSP, HSTS, Referrer-Policy, COOP, CORP
+- **CORS**: allowed origin (200 + headers), disallowed origin (403), no origin (*), preflight (204 + headers)
+- **Rate limiting**: normal login (401, rate headers), exceed limit (429 after 5 failures)
+- **Body size limit**: normal request (200), oversized (413)
+- **K1**: server-side pricing verified in service tests
+- **K2**: atomic stock decrement verified in service tests
+- **K3**: sale cancellation restocks verified in service tests
+- **K7**: crate/bottle consistency verified in service tests
+- **K8**: shared PrismaClient verified in repository imports
+- **Sensitive data**: login response excludes passwordHash
+
+### Security Verification
+
+| Question | Answer |
+|---|---|
+| Can a client manipulate sale prices? | **NO** — server reads from `Product.unitPrice` |
+| Can concurrent sales oversell stock? | **NO** — atomic `updateMany` with `gte` check |
+| Does cancelling a sale restore stock exactly once? | **YES** — atomic transaction restocks + status change |
+| Can a cancelled sale be cancelled again? | **NO** — rejected with validation error |
+| Is inventory crate/bottle state consistent? | **YES** — crates recalculated from bottles on every change |
+| Is there only one shared PrismaClient? | **YES** — `lib/prisma.js` imported by all repositories |
+| Are security headers actually present? | **YES** — verified on `/health` response |
+| Is CORS restricted correctly? | **YES** — allowed origins pass, disallowed blocked (403) |
+| Does login rate limiting actually return 429? | **YES** — 6th failed attempt returns 429 |
+| Are oversized requests rejected? | **YES** — 150kb request returns 413 |
+| Can unauthenticated users bypass any protected route? | **NO** — all 22 protected routes return 401 |
+| Can MANAGER perform ADMIN-only operations? | **NO** — all ADMIN-only routes return 403 |
+| Do unauthorized requests reach the service/database? | **NO** — middleware blocks before route/service |
+| Are sensitive user fields protected? | **YES** — passwordHash never exposed in any response |
+
+### Database
+
+No database schema changes required for Stage 9. All changes are application-level.
+
+### Files Associated With Stage 9
+
+| File | Purpose |
+|---|---|
+| `server.js` | Helmet, CORS, rate limiter, body size limit, error handling for 413 |
+| `lib/prisma.js` | Shared PrismaClient instance (K8 fix) |
+| `InventoryManagement/Services/SaleService.js` | K1 fix (server-side pricing), K2 fix (atomic stock decrement), K3 fix (restock on cancel), K7 fix (crate/bottle sync) |
+| `InventoryManagement/Services/StockService.js` | K7 fix (crate/bottle sync on receive) |
+| `InventoryManagement/Repository/Stock.js` | K2/K7 fixes (conditional decrement, crate recalculation) |
+| `InventoryManagement/Repository/*.js` | K8 fix (import shared PrismaClient) |
+| `UserManagement/Repository/UserRepository.js` | K8 fix (import shared PrismaClient) |
+| `package.json` | New dependencies: `helmet`, `express-rate-limit` |
+| `package-lock.json` | Dependency lockfile updated |
+| `tests/Stage9Security.test.js` | Comprehensive 15-test security control verification suite |
+
+---
+
 ## 8. Dates and timezones
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
@@ -455,14 +588,14 @@ Preferences of the project owner: plain-language explanation before code, step-b
 
 | ID | Priority | Issue | Suggested fix |
 |---|---|---|---|
-| K1 | HIGH | `completeSale` trusts the client-supplied `unitPrice`, so a user can sell at any price. | Read price from `Product.unitPrice` server-side; allow overrides for Admins only. |
-| K2 | HIGH | Stock check happens outside the transaction, so two simultaneous sales can oversell and push stock negative. | Atomic conditional decrement inside the transaction (`updateMany where quantityBottles >= qty`, verify count). |
-| K3 | HIGH | `cancelSale` has unclear semantics: it works on completed sales without restocking, and can cancel an already-cancelled sale. `pending` is never created by the API. | Decide policy: cancel = restock, allowed only from `completed`, Admin-only. |
+| K1 | HIGH | ~~`completeSale` trusts the client-supplied `unitPrice`, so a user can sell at any price.~~ **RESOLVED in Stage 9** | ~~Read price from `Product.unitPrice` server-side; allow overrides for Admins only.~~ |
+| K2 | HIGH | ~~Stock check happens outside the transaction, so two simultaneous sales can oversell and push stock negative.~~ **RESOLVED in Stage 9** | ~~Atomic conditional decrement inside the transaction (`updateMany where quantityBottles >= qty`, verify count).~~ |
+| K3 | HIGH | ~~`cancelSale` has unclear semantics: it works on completed sales without restocking, and can cancel an already-cancelled sale. `pending` is never created by the API.~~ **RESOLVED in Stage 9** | ~~Decide policy: cancel = restock, allowed only from `completed`, Admin-only.~~ |
 | K4 | HIGH | No role enforcement: any logged-in user can do anything. | Stage 7. |
 | K5 | HIGH | Dev, tests and `seed.js` all hit the shared production-style Aiven DB; `seed.js` wipes every table. | Create a separate dev/test database; make seed refuse to run without a `--force` flag. |
 | K6 | MED | ~~Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware.~~ **RESOLVED in Stage 6** | ~~Stage 6: custom error classes + one error handler.~~ |
-| K7 | MED | `quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles. | Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide. |
-| K8 | MED | Every file creates its own `new PrismaClient()` (about 12 connection pools); risks hitting the free-tier connection limit. | One shared `lib/prisma.js` instance. |
+| K7 | MED | ~~`quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles.~~ **RESOLVED in Stage 9** | ~~Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide.~~ |
+| K8 | MED | ~~Every file creates its own `new PrismaClient()` (about 12 connection pools); risks hitting the free-tier connection limit.~~ **RESOLVED in Stage 9** | ~~One shared `lib/prisma.js` instance.~~ |
 | K9 | MED | ~~No user-management routes; users only via seed/scripts.~~ **RESOLVED in Stage 8** | ~~Admin-only create user / change password / list users.~~ |
 | K10 | MED | Shop day (UTC+1) vs UTC day offset of one hour. | A `BUSINESS_TZ` offset constant for day boundaries, or `@db.Date` for reportDate. |
 | K11 | LOW | JWT role stays stale up to 8h after a role change; no logout or refresh. | Short expiry + refresh, or re-check role from DB on sensitive routes. |
@@ -475,7 +608,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 1. **Stage 6 — error handling:** ~~custom error classes (Validation 400, NotFound 404, Conflict 400), one central error middleware, 401 for bad/expired tokens, 404 for unknown routes, remove string matching.~~ **COMPLETED**
 2. **Stage 7 — roles:** `requireRole` middleware. **VERIFIED AFTER REMEDIATION.** 14 protected routes enforced: Admin-only (POST /products, POST /products/:id/discontinue, POST /products/:id/reactivate, POST /sales/:id/cancel); Admin+Manager (GET /products, GET /stock/low, POST /stock/receive, POST /sales, GET /sales, GET /sales/:id, POST /reports/daily, GET /reports/:date, GET /reports). 56 authorization tests, 196 total tests pass.
 3. **Stage 8 — missing routes and user management:** **VERIFIED — COMPLETE.** 8 new routes added (2 product, 2 stock, 4 user management). All 22 protected routes enforced. 48 Stage 8 API tests, 244 total tests pass. K9 resolved.
-4. **Stage 9 — hardening:** K1, K2, K3, K7, K8, plus `helmet`, `cors`, login rate limiting, body size limit, request validation.
+4. **Stage 9 — hardening:** **VERIFIED — COMPLETE.** K1 (server-side pricing), K2 (atomic stock decrement), K3 (cancellation restocks), K7 (crate/bottle consistency), K8 (shared PrismaClient), plus `helmet`, `cors`, login rate limiting, body size limit, request validation. 15 security controls verified. 260 total tests pass. K1/K2/K3/K7/K8 resolved.
 5. **Stage 10 — deployment:** API on Render (free tier sleeps after about 15 minutes idle, so the first request is slow), frontend on Vercel, Aiven for the DB.
 6. **Frontend** (section 15).
 

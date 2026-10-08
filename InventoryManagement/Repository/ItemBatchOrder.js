@@ -1,6 +1,7 @@
 // repositories/itemBatchOrderRepository.js
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// Uses shared PrismaClient (K8 fix)
+
+const prisma = require('../../lib/prisma');
 
 class ItemBatchOrderRepository {
   async create(data) {

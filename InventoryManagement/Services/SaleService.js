@@ -9,7 +9,11 @@ const userRepository = require('../../UserManagement/Repository/UserRepository')
 const { ValidationError, NotFoundError } = require('../../errors');
 
 class SaleService {
-  // items = [{ productId, quantityBottles, unitPrice }, ...]
+  // items = [{ productId, quantityBottles }, ...]
+  // unitPrice is read from Product.unitPrice server-side (K1 fix).
+  // Client-supplied unitPrice is ignored for security.
+  // Stock decrement is atomic: check-and-decrement in one DB operation (K2 fix).
+  // Crate/bottle consistency maintained (K7 fix).
   // Checks stock for every item BEFORE writing anything, then creates
   // the Sale + all SaleItems + decrements Stock, all in one transaction.
   async completeSale({ soldById, items }) {
@@ -37,12 +41,6 @@ class SaleService {
       if (typeof item.quantityBottles !== 'number' || item.quantityBottles <= 0) {
         throw new ValidationError('Quantity must be a positive number');
       }
-      if (item.unitPrice === undefined || item.unitPrice === null) {
-        throw new ValidationError('Each sale item must have a unitPrice');
-      }
-      if (typeof item.unitPrice !== 'number' || item.unitPrice <= 0) {
-        throw new ValidationError('Unit price must be a positive number');
-      }
 
       // Check if product exists and is active
       const product = await productRepository.findById(item.productId);
@@ -54,28 +52,26 @@ class SaleService {
       }
     }
 
-    // 2. Check stock availability for every item
+    // 2. Read prices from Product.unitPrice server-side (K1 fix)
+    //    Client-supplied unitPrice is ignored for security
+    const lineItems = [];
     for (const item of items) {
-      const stock = await stockRepository.findByProductId(item.productId);
-      if (!stock) {
-        throw new NotFoundError(`No stock record for product ${item.productId}`);
-      }
-      if (stock.quantityBottles < item.quantityBottles) {
-        throw new ValidationError(
-          `Not enough stock for product ${item.productId}: have ${stock.quantityBottles}, need ${item.quantityBottles}`
-        );
-      }
+      const product = await productRepository.findById(item.productId);
+      const unitPrice = product.unitPrice;
+      const lineTotal = item.quantityBottles * Number(unitPrice);
+      lineItems.push({
+        productId: item.productId,
+        quantityBottles: item.quantityBottles,
+        unitPrice,
+        lineTotal,
+        crateSize: product.crateSize,
+      });
     }
+    const totalAmount = lineItems.reduce((sum, i) => sum + Number(i.lineTotal), 0);
 
-    // 3. Calculate line totals and the sale's total
-    const lineItems = items.map((item) => ({
-      ...item,
-      lineTotal: item.quantityBottles * item.unitPrice,
-    }));
-    const totalAmount = lineItems.reduce((sum, i) => sum + i.lineTotal, 0);
-
-    // 4. Build one transaction: create Sale, create each SaleItem,
-    //    decrement Stock for each product — all succeed or all fail together
+    // 3. Build one transaction: create Sale, create each SaleItem,
+    //    atomically decrement Stock for each product (K2 fix)
+    //    K7: Also update crates to stay in sync with bottles
     const result = await prisma.$transaction(async (tx) => {
       const sale = await tx.sale.create({
         data: { soldById, totalAmount, status: 'completed' },
@@ -92,10 +88,21 @@ class SaleService {
           },
         });
 
-        await tx.stock.update({
-          where: { productId: item.productId },
-          data: { quantityBottles: { decrement: item.quantityBottles } },
-        });
+        // K2 + K7: Atomic conditional decrement with crate sync
+        // Only decrement if sufficient stock exists, and update crates
+        const updated = await stockRepository.conditionalDecrementWithCrates(
+          item.productId,
+          item.quantityBottles,
+          item.crateSize,
+          tx
+        );
+
+        if (updated === 0) {
+          // No row updated = insufficient stock or concurrent modification
+          throw new ValidationError(
+            `Not enough stock for product ${item.productId} (concurrent modification or insufficient quantity)`
+          );
+        }
       }
 
       return sale;
@@ -114,10 +121,43 @@ class SaleService {
   }
 
   async cancelSale(id) {
-    // Marks pending as cancelled; does not restock (sale never completed,
-    // so stock was never decremented in the first place).
+    // K3: Cancellation policy
+    // - Only completed sales can be cancelled
+    // - Already cancelled sales are rejected
+    // - Restocking happens atomically with status change
+    // - Only ADMIN can cancel (enforced at route level)
+    // K7: Restock updates both bottles and crates
     try {
-      return await saleRepository.updateStatus(id, 'cancelled');
+      const sale = await saleRepository.findByIdWithItems(id);
+      if (!sale) {
+        throw new NotFoundError(`Sale ${id} does not exist`);
+      }
+      if (sale.status !== 'completed') {
+        throw new ValidationError(`Only completed sales can be cancelled (current status: ${sale.status})`);
+      }
+
+      // Atomic: update sale status to cancelled AND restock all items
+      await prisma.$transaction(async (tx) => {
+        // Restock each product
+        for (const item of sale.items) {
+          const product = await productRepository.findById(item.productId);
+          const crateSize = product.crateSize ?? 0;
+          await stockRepository.incrementBottlesAndCrates(
+            item.productId,
+            item.quantityBottles,
+            crateSize,
+            tx
+          );
+        }
+
+        // Update sale status
+        await tx.sale.update({
+          where: { id },
+          data: { status: 'cancelled' },
+        });
+      });
+
+      return saleRepository.findByIdWithItems(id);
     } catch (e) {
       if (e.code === 'P2025') {
         throw new NotFoundError(`Sale ${id} does not exist`);
