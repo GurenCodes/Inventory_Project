@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-08. State: Stage 9 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 15 Stage 9 security controls, 260 total tests passing.
+Last updated: 2026-10-08. State: Stage 10 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 15 Stage 9 security controls, 260 total tests passing, deployment preparation complete.
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -29,9 +29,10 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 7: role-based restrictions | **VERIFIED AFTER REMEDIATION** |
 | Stage 8: missing routes & user management | **VERIFIED — COMPLETE** |
 | Stage 9: security hardening | **VERIFIED — COMPLETE** |
+| Stage 10: deployment preparation | **VERIFIED — COMPLETE** |
 | Missing routes, hardening, deployment, frontend | Not started |
 
-Git: Working directory clean except for Stage 9 changes. Modified: `server.js`, `InventoryManagement/Repository/Stock.js`, `InventoryManagement/Services/SaleService.js`, `InventoryManagement/Services/StockService.js`, `InventoryManagement/Repository/Product.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `InventoryManagement/Repository/Report.js`, `InventoryManagement/Repository/Sale.js`, `UserManagement/Repository/UserRepository.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `package.json`, `package-lock.json`. New: `lib/prisma.js`, `tests/Authorization.test.js`, `tests/Stage8Api.test.js`, `tests/Stage9Security.test.js`. Untracked: `opencode_log.txt` (ignorable).
+Git: Working directory clean except for Stage 10 changes. Modified: `server.js`, `InventoryManagement/Repository/Stock.js`, `InventoryManagement/Services/SaleService.js`, `InventoryManagement/Services/StockService.js`, `InventoryManagement/Repository/Product.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `InventoryManagement/Repository/Report.js`, `InventoryManagement/Repository/Sale.js`, `UserManagement/Repository/UserRepository.js`, `InventoryManagement/Repository/ItemBatchOrder.js`, `package.json`, `package-lock.json`, `PROJECT_CONTEXT.md`. New: `lib/prisma.js`, `tests/Authorization.test.js`, `tests/Stage8Api.test.js`, `tests/Stage9Security.test.js`. Untracked: `opencode_log.txt` (ignorable).
 
 ## 3. Stack and environment
 
@@ -546,6 +547,84 @@ No database schema changes required for Stage 9. All changes are application-lev
 
 ---
 
+## 7e. Stage 10 — Deployment Preparation (VERIFIED — COMPLETE)
+
+### Purpose
+
+Stage 10 completes the deployment preparation by verifying all production requirements are met and documenting the exact Render deployment configuration. No deployment is performed in this stage; only verification and documentation.
+
+### Deployment Readiness Verification
+
+| Criterion | Status | Notes |
+|---|---|---|
+| All tests pass | ✅ | 260/260 tests pass (56 Authorization + 48 Stage 8 API + 15 Stage 9 Security + 141 Service tests) |
+| Security controls verified | ✅ | 15/15 Stage 9 security controls pass |
+| No hard-coded localhost/ports | ✅ | Server uses `process.env.PORT \|\| 3000`; no hard-coded URLs |
+| No secrets in repository | ✅ | `.env` in `.gitignore`; no secrets in code |
+| Health check endpoint | ✅ | `GET /health` returns `{"status":"ok"}` 200 OK |
+| Prisma migrations ready | ✅ | 2 migrations ready (`init`, `add_product_is_active`) |
+| Build/start commands verified | ✅ | `npm ci && npx prisma generate` / `node server.js` |
+| No database schema changes needed | ✅ | All Stage 9 changes are application-level |
+
+### Render Deployment Configuration (Verified)
+
+| Setting | Value |
+|---|---|
+| Service Type | Web Service |
+| Repository | `GurenCodes/Inventory_Project` (main branch) |
+| Root Directory | Repository root (`.`) |
+| Runtime | Node.js 24.19.0 (matches local) |
+| Build Command | `npm ci && npx prisma generate` |
+| Start Command | `node server.js` |
+| Health Check Path | `/health` |
+| Health Check Interval | 30s (default) |
+
+### Required Environment Variables (Manual Entry in Render Dashboard)
+
+| Variable | Required | Source | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | **Yes** | Manual | Aiven PostgreSQL URL with `sslmode=require` |
+| `JWT_SECRET` | **Yes** | Manual | Generate strong random string (≥32 chars) |
+| `ALLOWED_ORIGINS` | **Yes** | Manual | Comma-separated frontend origins (e.g., `https://app.floramagg.com,https://admin.floramagg.com`) |
+| `PORT` | No | Auto | Render sets automatically; fallback 3000 in code |
+
+**Note:** `PORT` must NOT be set manually; Render provides it. `DATABASE_URL` and `JWT_SECRET` must use production values, not local `.env` values.
+
+### Database / Prisma Strategy
+
+- **External database:** Aiven PostgreSQL (already provisioned)
+- **Migrations:** Run `npx prisma migrate deploy` via Render Shell after first deploy
+- **Client generation:** `npx prisma generate` runs during build
+- **No schema changes** required for Stage 10
+
+### Files Associated With Stage 10
+
+| File | Purpose |
+|---|---|
+| `PROJECT_CONTEXT.md` | Updated with Stage 10 deployment configuration |
+| `server.js` | Already contains all production-ready configuration |
+| `lib/prisma.js` | Shared PrismaClient (K8 fix) |
+| `package.json` | Dependencies for production (helmet, express-rate-limit, cors) |
+
+### Stage 10 Verification Results
+
+| Check | Result |
+|---|---|
+| All 260 tests pass | ✅ 260/260 pass |
+| Security controls verified | ✅ 15/15 Stage 9 controls pass |
+| No hard-coded localhost/ports | ✅ Verified |
+| No secrets in repository | ✅ Verified |
+| No seed.js execution | ✅ Not executed |
+| No destructive DB commands | ✅ Verified |
+| `.env` not committed | ✅ In `.gitignore` |
+| `opencode_log.txt` ignored | ✅ In `.gitignore` |
+
+### Render Deployment Status
+
+**NOT DEPLOYED YET.** Stage 10 completes the preparation; actual Render Web Service creation and deployment is the next phase (Stage 11+).
+
+---
+
 ## 8. Dates and timezones
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
@@ -609,8 +688,9 @@ Preferences of the project owner: plain-language explanation before code, step-b
 2. **Stage 7 — roles:** `requireRole` middleware. **VERIFIED AFTER REMEDIATION.** 14 protected routes enforced: Admin-only (POST /products, POST /products/:id/discontinue, POST /products/:id/reactivate, POST /sales/:id/cancel); Admin+Manager (GET /products, GET /stock/low, POST /stock/receive, POST /sales, GET /sales, GET /sales/:id, POST /reports/daily, GET /reports/:date, GET /reports). 56 authorization tests, 196 total tests pass.
 3. **Stage 8 — missing routes and user management:** **VERIFIED — COMPLETE.** 8 new routes added (2 product, 2 stock, 4 user management). All 22 protected routes enforced. 48 Stage 8 API tests, 244 total tests pass. K9 resolved.
 4. **Stage 9 — hardening:** **VERIFIED — COMPLETE.** K1 (server-side pricing), K2 (atomic stock decrement), K3 (cancellation restocks), K7 (crate/bottle consistency), K8 (shared PrismaClient), plus `helmet`, `cors`, login rate limiting, body size limit, request validation. 15 security controls verified. 260 total tests pass. K1/K2/K3/K7/K8 resolved.
-5. **Stage 10 — deployment:** API on Render (free tier sleeps after about 15 minutes idle, so the first request is slow), frontend on Vercel, Aiven for the DB.
-6. **Frontend** (section 15).
+5. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved.
+6. **Stage 11 — deployment:** API on Render (free tier sleeps after about 15 minutes idle, so the first request is slow), frontend on Vercel, Aiven for the DB.
+7. **Frontend** (section 15).
 
 Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, expiry alerts via `findExpiringBefore`, low-stock notifications (email/WhatsApp), CSV/PDF report export, audit log, price history, barcode scanning, OpenAPI docs.
 
