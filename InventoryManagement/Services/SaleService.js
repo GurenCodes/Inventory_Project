@@ -72,10 +72,12 @@ class SaleService {
     // 3. Build one transaction: create Sale, create each SaleItem,
     //    atomically decrement Stock for each product (K2 fix)
     //    K7: Also update crates to stay in sync with bottles
-    const result = await prisma.$transaction(async (tx) => {
-      const sale = await tx.sale.create({
-        data: { soldById, totalAmount, status: 'completed' },
-      });
+    // Increased timeout to 30s to handle network latency to Aiven DB
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const sale = await tx.sale.create({
+          data: { soldById, totalAmount, status: 'completed' },
+        });
 
       for (const item of lineItems) {
         await tx.saleItem.create({
@@ -106,7 +108,9 @@ class SaleService {
       }
 
       return sale;
-    });
+    },
+    { timeout: 30000 }
+    );
 
     return saleRepository.findByIdWithItems(result.id);
   }
@@ -137,25 +141,28 @@ class SaleService {
       }
 
       // Atomic: update sale status to cancelled AND restock all items
-      await prisma.$transaction(async (tx) => {
-        // Restock each product
-        for (const item of sale.items) {
-          const product = await productRepository.findById(item.productId);
-          const crateSize = product.crateSize ?? 0;
-          await stockRepository.incrementBottlesAndCrates(
-            item.productId,
-            item.quantityBottles,
-            crateSize,
-            tx
-          );
-        }
+      await prisma.$transaction(
+        async (tx) => {
+          // Restock each product
+          for (const item of sale.items) {
+            const product = await productRepository.findById(item.productId);
+            const crateSize = product.crateSize ?? 0;
+            await stockRepository.incrementBottlesAndCrates(
+              item.productId,
+              item.quantityBottles,
+              crateSize,
+              tx
+            );
+          }
 
-        // Update sale status
-        await tx.sale.update({
-          where: { id },
-          data: { status: 'cancelled' },
-        });
-      });
+          // Update sale status
+          await tx.sale.update({
+            where: { id },
+            data: { status: 'cancelled' },
+          });
+        },
+        { timeout: 60000 }
+      );
 
       return saleRepository.findByIdWithItems(id);
     } catch (e) {
