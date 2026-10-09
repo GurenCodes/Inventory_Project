@@ -970,68 +970,73 @@ frontend/
 └── vercel.json
 ```
 
-### 16.4 Authentication & Token Storage Strategy
+### 16.4 Authentication & Token Storage Strategy (VERIFIED — IMPLEMENTED)
 
-**Current Backend (Verified):**
-- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }`
+**Current Backend (Verified — Cookie-Based Auth Implemented):**
+- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }` **AND** sets HttpOnly cookie
 - JWT payload: `{ userId, role }`, expires in **8 hours** (`expiresIn: '8h'`)
-- Sent via `Authorization: Bearer <token>` header
+- Cookie: `token` with `httpOnly: true`, `secure: true` (production), `sameSite: 'strict'`, `maxAge: 8h`, `path: '/'`
 - `jwt.verify()` validates signature + expiration → 401 on expiry/malformed/invalid
+- `POST /auth/logout` clears the cookie
 - No refresh token endpoint exists
 
-**Security Assessment:**
+**Security Assessment (VERIFIED):**
 | Aspect | Current | Risk |
 |--------|---------|------|
-| JWT in `localStorage` | ❌ Vulnerable to XSS | High |
-| JWT in `sessionStorage` | ⚠️ Slightly better | Medium |
-| HttpOnly + Secure + SameSite=Strict cookie | ✅ Best | Low |
+| JWT in `localStorage` | ❌ **REMOVED** | — |
+| JWT in `sessionStorage` | ✅ Used as fallback only | Low |
+| HttpOnly + Secure + SameSite=Strict cookie | ✅ **IMPLEMENTED** | **Low** |
+| `Access-Control-Allow-Credentials` | ✅ **ENABLED** | **Low** |
+| CSRF Protection | ✅ **SameSite=Strict** | **Low** |
 
-**Recommendation:** **HttpOnly + Secure + SameSite=Strict cookies** for production.
+**Implemented Backend Changes:**
 
-**Required Backend Changes (to be done before/with frontend):**
+1. **Cookie-based auth endpoint** (alongside existing Bearer token):
+```javascript
+// server.js - add to /auth/login response
+res.cookie('token', token, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+  sameSite: 'strict',     // CSRF protection
+  maxAge: 8 * 60 * 60 * 1000, // 8 hours
+  path: '/'
+});
+```
 
-1. **Add cookie-based auth endpoint** (alongside existing Bearer token):
-   ```javascript
-   // server.js - add to /auth/login response
-   res.cookie('token', token, {
-     httpOnly: true,
-     secure: true,           // HTTPS only
-     sameSite: 'strict',     // CSRF protection
-     maxAge: 8 * 60 * 60 * 1000, // 8 hours
-     path: '/'
-   });
-   ```
+2. **Updated `authenticateToken` middleware** to read from cookie first:
+```javascript
+const cookieToken = req.cookies?.token;
+const authHeader = req.headers['authorization'];
+const headerToken = authHeader && authHeader.split(' ')[1];
 
-2. **Update `authenticateToken` middleware** to read from cookie first:
-   ```javascript
-   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
-   ```
+const token = cookieToken || headerToken;
+```
 
-3. **Add logout endpoint** (clears cookie):
-   ```javascript
-   app.post('/auth/logout', (req, res) => {
-     res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'strict' });
-     res.json({ ok: true });
-   }
-   ```
+3. **Logout endpoint** (clears cookie):
+```javascript
+app.post('/auth/logout', (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.clearCookie('token', { httpOnly: true, secure: isProduction, sameSite: 'strict' });
+  res.json({ ok: true });
+});
+```
 
-4. **CORS credentials** (in server.js):
-   ```javascript
-   // CORS middleware update
-   if (isAllowed) {
-     res.header('Access-Control-Allow-Credentials', 'true');
-     // ...
-   }
-   ```
+4. **CORS credentials** enabled in middleware:
+```javascript
+if (isAllowed) {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  // ...
+}
+```
 
 5. **Frontend login** → `credentials: 'include'` on all requests.
 
-**Frontend Token Handling (Interim until cookie migration):**
-- Store JWT in memory (React state) + persist in `sessionStorage` for tab restore
+**Frontend Token Handling (Verified):**
+- JWT stored in **HttpOnly cookie** (primary) + `sessionStorage` fallback for tab restore
 - **Never** use `localStorage`
 - Auto-refresh not needed with 8h expiry; redirect to `/login` on 401
 
-**Migration Path:** Deploy cookie support alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
+**Migration Path:** Cookie support deployed alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
 
 ### 16.5 Vercel Deployment & CORS Configuration
 
@@ -1085,17 +1090,17 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
    - Output Directory: `dist`
    - Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com`
 
-### 16.6 Required Backend Changes (Pre-Frontend)
+### 16.6 Required Backend Changes (Pre-Frontend) — COMPLETED
 
 | Change | File | Priority | Status |
 |--------|------|----------|--------|
-| Add cookie support to `/auth/login` | `server.js` | **Required** | ☐ Pending |
-| Add `/auth/logout` endpoint | `server.js` | **Required** | ☐ Pending |
-| Update `authenticateToken` to read cookie | `server.js` | **Required** | ☐ Pending |
-| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ☐ Pending |
-| Add `/auth/logout` route | `server.js` | **Required** | ☐ Pending |
-| Increase Prisma transaction timeout (DONE) | `SaleService.js` | ✅ Done | ✅ Done |
-| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending |
+| Add cookie support to `/auth/login` | `server.js` | **Required** | ✅ Done |
+| Add `/auth/logout` endpoint | `server.js` | **Required** | ✅ Done |
+| Update `authenticateToken` to read cookie | `server.js` | **Required** | ✅ Done |
+| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ✅ Done |
+| Add `/auth/logout` route | `server.js` | **Required** | ✅ Done |
+| Increase Prisma transaction timeout | `SaleService.js` | ✅ Done | ✅ Done |
+| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending (production only) |
 
 ### 16.7 Stage 12 Implementation Sequence
 
@@ -1373,68 +1378,73 @@ frontend/
 └── vercel.json
 ```
 
-### 16.4 Authentication & Token Storage Strategy
+### 16.4 Authentication & Token Storage Strategy (VERIFIED — IMPLEMENTED)
 
-**Current Backend (Verified):**
-- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }`
+**Current Backend (Verified — Cookie-Based Auth Implemented):**
+- `POST /auth/login` → returns `{ token, user { id, fullName, email, role } }` **AND** sets HttpOnly cookie
 - JWT payload: `{ userId, role }`, expires in **8 hours** (`expiresIn: '8h'`)
-- Sent via `Authorization: Bearer <token>` header
+- Cookie: `token` with `httpOnly: true`, `secure: true` (production), `sameSite: 'strict'`, `maxAge: 8h`, `path: '/'`
 - `jwt.verify()` validates signature + expiration → 401 on expiry/malformed/invalid
+- `POST /auth/logout` clears the cookie
 - No refresh token endpoint exists
 
-**Security Assessment:**
+**Security Assessment (VERIFIED):**
 | Aspect | Current | Risk |
 |--------|---------|------|
-| JWT in `localStorage` | ❌ Vulnerable to XSS | High |
-| JWT in `sessionStorage` | ⚠️ Slightly better | Medium |
-| HttpOnly + Secure + SameSite=Strict cookie | ✅ Best | Low |
+| JWT in `localStorage` | ❌ **REMOVED** | — |
+| JWT in `sessionStorage` | ✅ Used as fallback only | Low |
+| HttpOnly + Secure + SameSite=Strict cookie | ✅ **IMPLEMENTED** | **Low** |
+| `Access-Control-Allow-Credentials` | ✅ **ENABLED** | **Low** |
+| CSRF Protection | ✅ **SameSite=Strict** | **Low** |
 
-**Recommendation:** **HttpOnly + Secure + SameSite=Strict cookies** for production.
+**Implemented Backend Changes:**
 
-**Required Backend Changes (to be done before/with frontend):**
+1. **Cookie-based auth endpoint** (alongside existing Bearer token):
+```javascript
+// server.js - add to /auth/login response
+res.cookie('token', token, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+  sameSite: 'strict',     // CSRF protection
+  maxAge: 8 * 60 * 60 * 1000, // 8 hours
+  path: '/'
+});
+```
 
-1. **Add cookie-based auth endpoint** (alongside existing Bearer token):
-   ```javascript
-   // server.js - add to /auth/login response
-   res.cookie('token', token, {
-     httpOnly: true,
-     secure: true,           // HTTPS only
-     sameSite: 'strict',     // CSRF protection
-     maxAge: 8 * 60 * 60 * 1000, // 8 hours
-     path: '/'
-   });
-   ```
+2. **Updated `authenticateToken` middleware** to read from cookie first:
+```javascript
+const cookieToken = req.cookies?.token;
+const authHeader = req.headers['authorization'];
+const headerToken = authHeader && authHeader.split(' ')[1];
 
-2. **Update `authenticateToken` middleware** to read from cookie first:
-   ```javascript
-   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
-   ```
+const token = cookieToken || headerToken;
+```
 
-3. **Add logout endpoint** (clears cookie):
-   ```javascript
-   app.post('/auth/logout', (req, res) => {
-     res.clearCookie('token', { httpOnly: true, secure: true, sameSite: 'strict' });
-     res.json({ ok: true });
-   }
-   ```
+3. **Logout endpoint** (clears cookie):
+```javascript
+app.post('/auth/logout', (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.clearCookie('token', { httpOnly: true, secure: isProduction, sameSite: 'strict' });
+  res.json({ ok: true });
+});
+```
 
-4. **CORS credentials** (in server.js):
-   ```javascript
-   // CORS middleware update
-   if (isAllowed) {
-     res.header('Access-Control-Allow-Credentials', 'true');
-     // ...
-   }
-   ```
+4. **CORS credentials** enabled in middleware:
+```javascript
+if (isAllowed) {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  // ...
+}
+```
 
 5. **Frontend login** → `credentials: 'include'` on all requests.
 
-**Frontend Token Handling (Interim until cookie migration):**
-- Store JWT in memory (React state) + persist in `sessionStorage` for tab restore
+**Frontend Token Handling (Verified):**
+- JWT stored in **HttpOnly cookie** (primary) + `sessionStorage` fallback for tab restore
 - **Never** use `localStorage`
 - Auto-refresh not needed with 8h expiry; redirect to `/login` on 401
 
-**Migration Path:** Deploy cookie support alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
+**Migration Path:** Cookie support deployed alongside Bearer tokens; frontend prefers cookies, falls back to `sessionStorage` + `Authorization` header.
 
 ### 16.5 Vercel Deployment & CORS Configuration
 
@@ -1488,17 +1498,17 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
    - Output Directory: `dist`
    - Environment Variables: `VITE_API_URL=https://inventory-project-6szy.onrender.com`
 
-### 16.6 Required Backend Changes (Pre-Frontend)
+### 16.6 Required Backend Changes (Pre-Frontend) — COMPLETED
 
 | Change | File | Priority | Status |
 |--------|------|----------|--------|
-| Add cookie support to `/auth/login` | `server.js` | **Required** | ☐ Pending |
-| Add `/auth/logout` endpoint | `server.js` | **Required** | ☐ Pending |
-| Update `authenticateToken` to read cookie | `server.js` | **Required** | ☐ Pending |
-| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ☐ Pending |
-| Add `/auth/logout` route | `server.js` | **Required** | ☐ Pending |
-| Increase Prisma transaction timeout (DONE) | `SaleService.js` | ✅ Done | ✅ Done |
-| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending |
+| Add cookie support to `/auth/login` | `server.js` | **Required** | ✅ Done |
+| Add `/auth/logout` endpoint | `server.js` | **Required** | ✅ Done |
+| Update `authenticateToken` to read cookie | `server.js` | **Required** | ✅ Done |
+| Add `Access-Control-Allow-Credentials` to CORS | `server.js` | **Required** | ✅ Done |
+| Add `/auth/logout` route | `server.js` | **Required** | ✅ Done |
+| Increase Prisma transaction timeout | `SaleService.js` | ✅ Done | ✅ Done |
+| Update `ALLOWED_ORIGINS` for production | Render Dashboard | **Required** | ☐ Pending (production only) |
 
 ### 16.7 Stage 12 Implementation Sequence
 

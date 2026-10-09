@@ -13,6 +13,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 
 const { 
   ValidationError, 
@@ -100,6 +101,7 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     res.header('Access-Control-Max-Age', '86400');
+    res.header('Access-Control-Allow-Credentials', 'true');
   } else {
     // Origin not allowed - reject all requests
     return res.status(403).json({ error: 'Not allowed by CORS' });
@@ -117,6 +119,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '100kb' }));
+app.use(cookieParser());
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -151,8 +154,19 @@ app.post('/auth/login', loginLimiter, async (req, res, next) => {
       { expiresIn: '8h' }
     );
 
+    // Set HttpOnly cookie for secure token storage
+    // secure: true only in production (HTTPS); false for local HTTP development
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: isProduction,   // HTTPS only in production
+      sameSite: 'strict',     // CSRF protection
+      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+      path: '/'
+    });
+    
     res.json({
-      token,
+      token, // Keep token in response for backward compatibility
       user: {
         id: user.id,
         fullName: user.fullName,
@@ -169,28 +183,44 @@ app.post('/auth/login', loginLimiter, async (req, res, next) => {
     next(err);
   }
 });
+  
+// POST /auth/logout - Clear the authentication cookie
+app.post('/auth/logout', (req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'strict',
+    path: '/'
+  });
+  res.json({ ok: true });
+});
 
 // JWT Authentication Middleware (Stage 2)
-// Verifies token and attaches user to request for protected routes
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    throw new UnauthorizedError('Authentication token required');
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) {
-      // All JWT verification failures are 401 (not authenticated)
-      // 403 is for authenticated but forbidden (Stage 7)
-      throw new UnauthorizedError('Invalid or expired token');
+  // Verifies token and attaches user to request for protected routes
+  function authenticateToken(req, res, next) {
+    // Check for token in cookie first, then Authorization header
+    const cookieToken = req.cookies?.token;
+    const authHeader = req.headers['authorization'];
+    const headerToken = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    
+    const token = cookieToken || headerToken;
+  
+    if (!token) {
+      throw new UnauthorizedError('Authentication token required');
     }
-    // Attach decoded user info (userId, role) to request
-    req.user = decoded;
-    next();
-  });
-}
+  
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+      if (err) {
+        // All JWT verification failures are 401 (not authenticated)
+        // 403 is for authenticated but forbidden (Stage 7)
+        throw new UnauthorizedError('Invalid or expired token');
+      }
+      // Attach decoded user info (userId, role) to request
+      req.user = decoded;
+      next();
+    });
+  }
 
 // Role-based Authorization Middleware (Stage 7)
 // Checks if the authenticated user has one of the required roles

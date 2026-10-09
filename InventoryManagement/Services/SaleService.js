@@ -72,7 +72,7 @@ class SaleService {
     // 3. Build one transaction: create Sale, create each SaleItem,
     //    atomically decrement Stock for each product (K2 fix)
     //    K7: Also update crates to stay in sync with bottles
-    // Increased timeout to 30s to handle network latency to Aiven DB
+    // Increased timeout to 60s to handle network latency to Aiven DB
     const result = await prisma.$transaction(
       async (tx) => {
         const sale = await tx.sale.create({
@@ -109,7 +109,7 @@ class SaleService {
 
       return sale;
     },
-    { timeout: 30000 }
+    { timeout: 60000 }
     );
 
     return saleRepository.findByIdWithItems(result.id);

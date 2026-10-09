@@ -14,7 +14,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setToken: (token: string) => void;
   setUser: (user: User) => void;
   setLoading: (loading: boolean) => void;
@@ -48,13 +48,13 @@ export const useAuthStore = create<AuthState>()(
           const data = await response.json();
           const { token, user } = data;
 
-          // Store token in memory and sessionStorage for tab restore
-          sessionStorage.setItem('token', token);
+          // Token is now stored in HttpOnly cookie by the backend
+          // We only store user info in sessionStorage for display purposes
           sessionStorage.setItem('user', JSON.stringify(user));
 
           set({
             user,
-            token,
+            token: 'authenticated', // Token is in HttpOnly cookie, we just mark as authenticated
             isAuthenticated: true,
             isLoading: false,
           });
@@ -64,15 +64,19 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      logout: () => {
-        sessionStorage.removeItem('token');
+      logout: async () => {
+        // Clear session storage
         sessionStorage.removeItem('user');
         
-        // Also call backend logout if cookie-based auth is implemented
-        fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://inventory-project-6szy.onrender.com'}/auth/logout`, {
-          method: 'POST',
-          credentials: 'include',
-        }).catch(() => {}); // Ignore errors
+        // Call backend logout to clear the cookie
+        try {
+          await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://inventory-project-6szy.onrender.com'}/auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+          });
+        } catch (e) {
+          // Ignore errors
+        }
 
         set({
           user: null,
@@ -82,7 +86,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setToken: (token: string) => {
-        sessionStorage.setItem('token', token);
+        // Token is now in HttpOnly cookie, this is kept for compatibility
         set({ token, isAuthenticated: true });
       },
 
@@ -98,7 +102,7 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       partialize: (state) => ({
-        token: state.token,
+        // Token is in HttpOnly cookie, don't persist it
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
