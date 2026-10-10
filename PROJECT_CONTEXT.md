@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-10 (consistency audit + dependency-fix follow-up session). State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (recorded run 2026-10-10); frontend `npm run build` green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy) + push local commits. **Git: `main` ahead of `origin/main` by 7 commits as of this follow-up session (NOT pushed). Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K10–K12, K15, K16, K18).
+Last updated: 2026-10-10 (second docs consistency audit, after push). State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (recorded run 2026-10-10); frontend `npm run build` green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy — see §17 and the §2 outstanding-work checklist). **Git: `main` is in sync with `origin/main` (0 ahead / 0 behind, HEAD `cefc4ef`) — all 2026-10-10 work was pushed on 2026-10-10. Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K10–K12, K15, K16, K18).
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -48,7 +48,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Auth | JWT (HS256, 8h) + HttpOnly cookie `token` (primary) + Bearer header fallback |
 | Frontend | React **19.2**, TypeScript ~6.0, Vite **8.3**, Tailwind CSS **4.3**, React Router **7.18**, TanStack Query 5, Zustand 5, react-hook-form 7, zod 3, axios `^1.20.0` (declared in `frontend/package.json` since 2026-10-10, K17 resolved) |
 | Frontend location | `frontend/` (own `package.json` + lockfile; **not** an npm workspace of the root) |
-| Repo / branch | `https://github.com/GurenCodes/Inventory_Project.git`, branch `main`; **7 commits ahead of `origin/main`, not pushed** (5 audit commits + 2 follow-up commits of 2026-10-10); working tree had uncommitted edits to this document at last check (never assume clean — verify with `git status`) |
+| Repo / branch | `https://github.com/GurenCodes/Inventory_Project.git`, branch `main`; **in sync with `origin/main` (0 ahead / 0 behind, HEAD `cefc4ef`)** — all 2026-10-10 work (8 commits, `d877344`…`cefc4ef`) pushed 2026-10-10 with owner confirmation; never assume a clean tree — verify with `git status` |
 
 ### Evidence classification (what is actually proven)
 
@@ -56,6 +56,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 |---|---|
 | `npm test` → all 9 suites passed | **Recorded execution result** (2026-10-10; see §9 for suite trust ranking) |
 | Frontend `npm run build` (`tsc -b && vite build`) green | **Recorded execution result** (2026-10-10) |
+| Frontend lint (`oxlint`) exits 0 | **Recorded execution result** (2026-10-10, after `ProductForm.tsx` hooks fix: 0 errors, 3 advisory warnings) |
 | Render backend deployed, `/health` 200, migrations applied | **Verified at Stage 11** (historical; live state not re-verified 2026-10-10) |
 | Cookie attributes in production (`SameSite=None; Secure`) | **Verified in code** (`server.js`) + **Regression test asserts the Set-Cookie header**; not verified in a real cross-origin browser session |
 | Frontend works end-to-end in a browser | **Unverified** — no E2E/browser testing performed |
@@ -68,7 +69,7 @@ This audit verified claims in this document against the real code and tests. Fin
 - **PUT /products/:id with `reorderLevel` returned 500** (PrismaClientValidationError — the route passed `reorderLevel` to `updateProduct`, which rejects unknown fields). Fixed: the route applies reorder level via `stockService.adjustReorderLevel` and returns the product with its stock.
 - **Crate drift in `receiveBatchOrder`** (11 bottles + 1 crate + 2 bottles left `quantityCrates` at 1 instead of 2). Fixed: crates recalculated from total bottles inside the interactive `$transaction`, with an optimistic `updateMany` guard on `quantityBottles` so concurrent deliveries cannot silently overwrite each other.
 - **Frontend build was broken** (unclosed JSX in `Login.tsx`) and the working-tree had never compiled. Fixed; `npm run build` in `frontend/` now passes (`tsc -b && vite build`).
-- **Placeholder pages replaced**: Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users were "Coming Soon" divs; all are now fully implemented against the real API (plus `useStock`/`useSales`/`useReports`/`useUsers` hooks and `lib/format.ts`).
+- **Placeholder pages replaced**: Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users were "Coming Soon" divs; all are now fully implemented against the real API (plus the 8 hooks in `frontend/src/hooks/` — `useAuth`, `useDashboard`, `usePermissions`, `useProducts`, `useReports`, `useSales`, `useStock`, `useUsers` — and `lib/format.ts`).
 - **Session restore now real**: `initializeAuth` calls `GET /auth/me` instead of assuming a hardcoded token is a valid session; the login token is kept per-tab (sessionStorage) only as an Authorization-header fallback for blocked third-party cookies; never localStorage.
 - **Login route moved outside the authenticated layout**; broken `/dashboard` nav link fixed to `/`; demo credentials shown only in dev builds; last-character password-peek removed.
 - **`GET /reports` range query now includes `generatedBy`** for display.
@@ -77,18 +78,43 @@ This audit verified claims in this document against the real code and tests. Fin
 - **2026-10-10 consistency audit (docs-only):** corrected cookie `SameSite` descriptions (production is `None`, not `Strict`), standardized the frontend env var to `VITE_API_BASE_URL` (code-established), documented that `axios` is used by the frontend but not declared in `frontend/package.json` (K17), labeled historical stage snapshots, and collapsed verbatim-duplicate sections §16–19.
 - **2026-10-10 dependency-fix follow-up (K17 resolved):** `axios` `^1.20.0` added to `frontend/package.json` dependencies and `frontend/package-lock.json`; `autoprefixer` `^10.6.1` added to frontend devDependencies (a clean-room `npm ci` + `npm run build` in an isolated directory previously failed on BOTH missing packages — axios resolved via root `node_modules`, autoprefixer via the root copy). The no-consumer copies of `axios` and `autoprefixer` were removed from the root `package.json`/lockfile (root still lists some unused frontend-ish dev deps: `postcss`, `tailwindcss`, `vite`, `typescript`, React types/plugins — harmless residue, optional cleanup later). A clean-room isolated `npm ci` + `npm run build` now **passes** (176 modules, dist emitted). Lint (`oxlint`) also run: 5 `rules-of-hooks` errors in `ProductForm.tsx` (hooks called after an early `if (!isAdmin) return`) **fixed** by moving the guard below the hooks; lint now exits 0 (3 advisory warnings remain). Backend suite re-verified after the dependency changes: `npm test` → all 9 suites passed (Regression 29/29). `opencode_log.txt` (a terminal-escape junk file committed in the recovery snapshot `d877344`) is now gitignored and untracked going forward.
 
-Known still-open items are tracked in section 12 (K5, K10–K12, K15, K16, K18; **K17 resolved 2026-10-10**).
+Known still-open items are tracked in section 12 (K5, K10–K12, K15, K16, K18; **K17 resolved 2026-10-10**) and summarized in the §2 outstanding-work checklist above.
+- **2026-10-10 second consistency audit (docs-only, this commit):** verified the document against the repo after the push; corrected the stale "ahead-by-7 / NOT pushed" Git claims (all eight commits are on `origin/main`, HEAD `cefc4ef`), fixed the broken Stage 9/Stage 10 roadmap numbering, removed duplicate route rows in §16.2, added the authoritative outstanding-work checklist in §2 (superseding §18/§18b), and aligned the header, §17, §19 and FINAL VERDICT with the post-push state. No code changes.
 
-Git (2026-10-10): branch `main`; **ahead of `origin/main` by 7 unpushed commits (the five from the audit — `d877344`, `ec3bb1a`, `da2ab4e`, `af985a5`, `0a894f7` — plus this follow-up's K17 dependency-fix commit `50dcde9` and docs commit `86bc0b9`) — push requires owner confirmation per §10**; the tree was clean at commit `0a894f7`, but this document's subsequent audit edits were left as uncommitted working-tree changes — treat "clean" claims in this file as historical unless re-verified.
+Git (2026-10-10, after this audit): branch `main`; **in sync with `origin/main` (0 ahead / 0 behind, HEAD `cefc4ef`)**. All eight 2026-10-10 commits — `d877344`, `ec3bb1a`, `da2ab4e`, `af985a5`, `0a894f7`, `50dcde9`, `86bc0b9`, `cefc4ef` — were pushed to `origin/main` on 2026-10-10 with the owner's explicit confirmation (the §10 rule was followed). Future pushes still require owner confirmation per §10. Treat any "clean tree" claim in this file as historical unless re-verified with `git status`.
+
+### Outstanding work (authoritative checklist — 2026-10-10)
+
+> This is the single authoritative list of what remains. Older checklists (§14 historical, §18, §18b, §16.5/16.8, FINAL VERDICT) are superseded by this list; §12 tracks the same items with evidence and suggested fixes.
+
+**Deployment (Stage 13, §17):**
+- [ ] Import the repo in Vercel (Framework: Vite, Root Directory: `frontend`, Build Command: `npm run build`, Output: `dist`).
+- [ ] Set `VITE_API_BASE_URL=https://inventory-project-6szy.onrender.com` in Vercel (not `VITE_API_URL`).
+- [ ] Update Render `ALLOWED_ORIGINS` to the exact Vercel domain(s).
+- [ ] Browser-verify cross-origin login, cookie persistence, logout (never verified in a real browser; only code + server-side tests exist).
+- [ ] Confirm `NODE_ENV=production` on Render (K18) and re-run the production-cookie check.
+
+**Data / infra risks:**
+- [ ] K5 (HIGH): separate dev/test database; make `seed.js` refuse to run without `--force`.
+- [ ] K10 (MED): decide business-timezone (WAT) day-boundary handling before the first real daily close-out.
+- [ ] Pre-go-live: remove/replace seeded logins (`staff1`…`staff10`); strong `JWT_SECRET`; separate prod DB; backups understood.
+
+**Optional hardening / polish (not blocking deploy):**
+- [ ] K11: JWT revocation/refresh consideration (low priority; logout cookie-clearing exists).
+- [ ] K12: require positive integer or null for `crateSize`.
+- [ ] K15/K14: migrate legacy suites to Jest/supertest; until then trust `Regression.test.js` and read suite output.
+- [ ] K16: route-level `React.lazy` code splitting (~610 kB single chunk).
+- [ ] UI polish: ErrorBoundary, dark mode, E2E/browser tests (§16.7 Phase 9 partial).
+- [ ] Root `package.json` residual cleanup: unused frontend-ish dependencies/devDependencies and the unused `cors` package (§3).
 
 ## 3. Stack and environment
 
 - Node.js v24.19.0 (CommonJS), Express 5.2.x, Prisma **6.19.x**, PostgreSQL on Aiven (shared with a collaborator), jsonwebtoken 9, bcrypt 6, dotenv.
 - **Stage 9 dependencies**: `helmet` (security headers), `express-rate-limit` (rate limiting). The `cors` npm package is listed in `package.json` but **not imported anywhere** — CORS is a manual middleware in `server.js` (see §7d).
-- Frontend dependencies live in `frontend/package.json` (React 19, Vite 8, Tailwind 4, React Router 7, TanStack Query, Zustand, react-hook-form, zod, axios, autoprefixer). The root `package.json` still lists some unused frontend-ish dev deps (`postcss`, `tailwindcss`, `vite`, `typescript`, React types/plugins) as harmless residue; the formerly-masking `axios` and `autoprefixer` root copies were removed on 2026-10-10 (K17).
+- Frontend dependencies live in `frontend/package.json` (React 19, Vite 8, Tailwind 4, React Router 7, TanStack Query, Zustand, react-hook-form, zod, axios, autoprefixer). The root `package.json` still lists unused frontend-ish **dependencies** (`@tanstack/react-query`, `@tanstack/react-query-devtools`, `react-hot-toast`, `react-router-dom`) and **devDependencies** (`postcss`, `tailwindcss`, `vite`, `typescript` ^7.0.2, `@types/react-dom`, `@vitejs/plugin-react`, `@types/node`, `zustand`) as harmless residue, plus the unused `cors` package (CORS is manual middleware, §7d); the formerly-masking `axios` and `autoprefixer` root copies were removed on 2026-10-10 (K17). Optional cleanup — see the §2 outstanding-work checklist.
 - Tools: VS Code, pgAdmin4, opencode 1.18.x using NVIDIA Nemotron 3 Ultra 550B. OS: Windows (PowerShell / cmd).
 - `.env` (never commit): `DATABASE_URL` (Aiven string, `sslmode=require`), `JWT_SECRET`, optional `PORT` (default 3000). The Aiven database is named `defaultdb`. The server also reads `NODE_ENV` (production cookie behavior) and `ALLOWED_ORIGINS` (CORS).
-- Commands: `npm start` | `npm test` (runs `tests/run-all.js`, all 9 suites) | `npx prisma generate` (after any schema change) | `npx prisma migrate dev --name <name>` (dev) | `npx prisma migrate deploy` (hosted) | `node seed.js` (**DESTRUCTIVE**) | `node tests/<Name>.test.js`. Frontend: `npm run dev|build|preview` inside `frontend/`.
+- Commands: `npm start` | `npm test` (runs `tests/run-all.js`, all 9 suites) | `npx prisma generate` (after any schema change) | `npx prisma migrate dev --name <name>` (dev) | `npx prisma migrate deploy` (hosted) | `node seed.js` (**DESTRUCTIVE**) | `node tests/<Name>.test.js`. The `tests/` folder also holds two standalone utility scripts **not** part of `npm test`: `test-db-latency.js` and `test-jwt-expiration.js`. Frontend: `npm run dev|build|lint|preview` inside `frontend/`.
 - Express 5 note: rejected promises in async route handlers are forwarded to error middleware automatically.
 
 ## 4. Architecture and conventions
@@ -919,7 +945,7 @@ Working tree clean (except opencode_log.txt ignored)
 > **Route deviations from the planned table below:** shipped routes are `/login`, `/` (Dashboard), `/products`, `/products/new`, `/products/:id`, `/products/:id/edit`, `/stock`, `/stock/receive`, `/stock/receive/:productId`, `/sales`, `/sales/new`, `/sales/:id`, `/reports`, `/users`. There is no separate `/stock/:productId`, `/stock/:productId/reorder-level`, `/reports/:date`, `/users/:id`, or `/users/:id/password` page — reorder level, report generation, user creation and password reset are dialogs/forms inside the Stock, Reports and Users pages. Planned extra filters (pagination, sales date/user filters) are not implemented.
 > **Packaging note (RESOLVED 2026-10-10):** `axios` is now declared in `frontend/package.json` (K17); a clean-room `npm ci` + `npm run build` inside an isolated `frontend/` copy passes. Older checkouts before this fix resolved axios only via the root `node_modules`.
 
-### 16.1 Recommended Frontend Stack
+### 16.1 Recommended Frontend Stack (PLAN — actual stack: §2 / the §16 header note above)
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
@@ -951,8 +977,6 @@ Working tree clean (except opencode_log.txt ignored)
 | `/products/new` | Create product (Admin only) | Private | ADMIN | `POST /products` |
 | `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
 | `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
-| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
-| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
 | `/stock` | Stock overview with search, low-stock filter | Private | ADMIN, MANAGER | `GET /products?includeInactive=true`, `GET /stock/:productId` |
 | `/stock/:productId` | Stock detail + receive stock | Private | ADMIN, MANAGER | `GET /stock/:productId`, `POST /stock/receive` |
 | `/stock/:productId/reorder-level` | Adjust reorder level (Admin) | Private | ADMIN | `PUT /stock/:productId/reorder-level` |
@@ -964,7 +988,6 @@ Working tree clean (except opencode_log.txt ignored)
 | `/users` | User management (Admin only) | Private | ADMIN | `GET /users`, `POST /users` |
 | `/users/:id` | User detail (Admin) | Private | ADMIN | `GET /users/:id` |
 | `/users/:id/password` | Password reset (Admin) | Private | ADMIN | `PUT /users/:id/password` |
-| `/login` | Login page | Public | — | `POST /auth/login` |
 
 **Navigation:**
 - Persistent sidebar (collapsible on mobile)
@@ -1029,6 +1052,8 @@ frontend/
 └── vercel.json
 ```
 
+> **Actual shipped structure (2026-10-10)** — differs from the plan above: `frontend/src/services/api.ts` (single axios module, not `src/api/`), `src/store/authStore.ts` (no `uiStore`), 8 hooks in `src/hooks/` (`useAuth`, `useDashboard`, `usePermissions`, `useProducts`, `useReports`, `useSales`, `useStock`, `useUsers`; no `useDebounce`), `src/lib/format.ts` (no `src/utils/`), `src/components/{ui,layout,auth}/`, 12 pages in `src/pages/` (no `StockDetail`/`SaleForm`/`ReportDetail`/`UserDetail`; `Login.tsx` once), no `tailwind.config.ts` (Tailwind v4), no `vercel.json` yet (Stage 13).
+
 ### 16.4 Authentication & Token Storage Strategy (VERIFIED — IMPLEMENTED)
 
 **Current Backend (Verified — Cookie-Based Auth Implemented):**
@@ -1168,7 +1193,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 | Phase | Tasks | Deliverable | Status |
 |-------|-------|-------------|--------|
-| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment | ✅ Done |
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier **(shipped instead: oxlint only, no Prettier)**, install deps | Working dev environment | ✅ Done |
 | **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes | ✅ Done |
 | **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav | ✅ Done |
 | **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard | ✅ Done |
@@ -1186,12 +1211,12 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 | Question | Recommendation | Decision Required |
 |----------|----------------|-------------------|
-| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in Stage 13 | ☐ Confirm |
+| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in a later hardening pass (not part of Stage 13) | ☐ Confirm |
 | Cookie migration: simultaneous Bearer + cookie, or hard cut? | Simultaneous support (backend reads both), frontend prefers cookie | ☐ Confirm |
-| Refresh token? | Defer to Stage 13 (add refresh endpoint + silent refresh) | ☐ Defer |
+| Refresh token? | Defer to a later hardening pass (add refresh endpoint + silent refresh; Stage 13 is Vercel deployment only, §17) | ☐ Defer |
 | Real-time updates (stock/sales)? | Defer: polling (30s) or SSE; WebSocket overkill for now | ☐ Defer |
 | Offline support? | Not needed (internal app, stable connectivity) | ✅ Confirmed |
-| Barcode scanning (camera)? | Defer to Stage 13+ (native capability) | ☐ Defer |
+| Barcode scanning (camera)? | Defer to a later pass (native capability) | ☐ Defer |
 
 ---
 
@@ -1201,7 +1226,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 | Step | Action |
 |------|--------|
-| 1 | Push this repo (`main`) to GitHub — **5 local commits currently unpushed** (§2) |
+| 1 | ~~Push this repo (`main`) to GitHub~~ **DONE 2026-10-10** (all eight commits pushed; HEAD `cefc4ef`, in sync with `origin/main`, §2) |
 | 2 | Import in Vercel → Framework: Vite, Root Directory: `frontend` |
 | 3 | Set Build Command: `npm run build`, Output: `dist` |
 | 4 | Add Environment Variable: `VITE_API_BASE_URL=https://inventory-project-6szy.onrender.com` (**not** `VITE_API_URL`) |
@@ -1214,6 +1239,8 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 ---
 
 ## 18. Pre-deployment Checklist (Updated)
+
+> **Superseded (2026-10-10 second audit):** the authoritative outstanding-work checklist now lives in **§2**. This section is kept as supporting detail; where they differ, §12 and §2 win.
 
 - [ ] Remove or change all seeded logins and passwords; create real Admin accounts.
 - [ ] Strong `JWT_SECRET`; set all env vars on the host (never commit `.env`).
@@ -1241,13 +1268,15 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 | Security controls | 15/15 verified |
 | Total tests | 260/260 passing |
 | Render service | Live at https://inventory-project-6szy.onrender.com |
-| Git | Clean, pushed to `origin/main` **at that time; the 2026-10 audit commits are still unpushed (§2)** |
+| Git | Clean, pushed to `origin/main` **at that time; the 2026-10 audit commits were pushed later on 2026-10-10 — `main` is now in sync (§2)** |
 
 **Final Verdict:** **STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12.
 
 ---
 
-## 18b. Next Steps
+## 18b. Next Steps (HISTORICAL — superseded by the §2 outstanding-work checklist)
+
+> Items 1–3 completed 2026-10-10; items 4–5 live on in the §2 checklist. Kept for the session narrative.
 
 1. ~~Implement cookie-based auth~~ **DONE** (backend §16.4 + frontend `authStore`/`api.ts`; prod cookies `SameSite=None; Secure`)
 2. ~~Initialize frontend repo~~ **DONE** (Vite + React 19 + TypeScript + Tailwind v4 in `frontend/`)
@@ -1267,7 +1296,11 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 **K17 RESOLVED (2026-10-10 follow-up):** axios + autoprefixer now declared in `frontend/package.json` with updated `frontend/package-lock.json`; masking root copies removed; isolated clean-room `npm ci` + build verified; oxlint clean (0 errors) after fixing conditional hooks in `ProductForm.tsx`; backend suite re-verified (all 9 green).
 
-**Remaining work:** Stage 13 (Vercel deployment — packaging blockers cleared; CORS/`ALLOWED_ORIGINS` + browser verification still pending) and the open known issues in section 12 (K5, K10, K11, K12, K15, K16, K18).
+**All work is pushed (2026-10-10):** `main` in sync with `origin/main`, HEAD `cefc4ef` (8 commits pushed that day with owner confirmation).
+
+**Second consistency audit (2026-10-10, docs-only):** stale Git claims, roadmap numbering, duplicate §16.2 rows, and checklist fragmentation corrected; authoritative outstanding-work checklist added in §2.
+
+**Remaining work:** everything outstanding is listed in the **§2 outstanding-work checklist** — Stage 13 (Vercel deployment — CORS/`ALLOWED_ORIGINS` + browser verification still pending) and the open known issues in section 12 (K5, K10, K11, K12, K15, K16, K18).
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
 - Never use local-time methods (`setHours`, `setDate`) on dates. Use `setUTCHours`, `setUTCDate`, or ISO strings.
@@ -1278,8 +1311,8 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 ## 9. Testing
 
 - **`npm test`** now runs everything: `tests/run-all.js` spawns each suite as a child process, watches for `❌` / `Total: N passed, M failed` patterns and non-zero exits, and prints a final `RESULT:` line. It fails (non-zero) if any suite fails.
-- Individual suites (exact filenames in `tests/`): `node tests/<Name>.test.js` (`AuthService.bcrypt`, `ProductService`, `StockService`, `SaleService`, `ReportService`, `Authorization`, `Stage8Api`, `Stage9Security`, `Regression`; `run-all.js` spawns all nine).
-- **Trust ranking (from the 2026-10 audit):** `Regression.test.js` (29 assertions, real HTTP + DB checks, exits non-zero on failure) is the most trustworthy. `Stage7Authorization` and `Stage8Api` do real requests. Several older suites (`ProductService`, `StockService`, etc.) print ✅/❌ but historically exited 0 regardless of failures — read their output, don't trust the exit code. `Stage9Security.test.js` contains hardcoded PASS lines (its K8 check was broken; a static-file check was added in Regression instead).
+- Individual suites (exact filenames in `tests/`): `node tests/<Name>.test.js` (`AuthService.bcrypt`, `ProductService`, `StockService`, `SaleService`, `ReportService`, `Authorization`, `Stage8Api`, `Stage9Security`, `Regression`; `run-all.js` spawns all nine). Two standalone utility scripts exist alongside them but are **not** part of `npm test`: `test-db-latency.js`, `test-jwt-expiration.js`.
+- **Trust ranking (from the 2026-10 audit):** `Regression.test.js` (29 assertions, real HTTP + DB checks, exits non-zero on failure) is the most trustworthy. `Authorization.test.js` and `Stage8Api.test.js` do real requests. Several older suites (`ProductService`, `StockService`, etc.) print ✅/❌ but historically exited 0 regardless of failures — read their output, don't trust the exit code. `Stage9Security.test.js` contains hardcoded PASS lines (its K8 check was broken; a static-file check was added in Regression instead).
 - Output format per function: valid input, missing fields, invalid values, business rules, DB state verified by direct query, transaction integrity. Each marked PASS / FAIL / N/A.
 - Conventions: `TEST_` prefix for test data; clean up in `try/finally`; each test uses its own non-colliding date (report tests use 2026-07-0x); assert the **specific** expected error message. A test that only checks "something threw" once passed because of a unique-constraint error, which is a false pass.
 - Tests run against the live shared Aiven database (see K5).
@@ -1305,7 +1338,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 - Generator must be `provider = "prisma-client-js"`. The newer `prisma-client` emits TypeScript into `/generated` and breaks `require('@prisma/client')`.
 - `prisma.config.ts` is a Prisma 7 leftover; it still works because it loads dotenv.
 - Aiven service once showed "Rebuilding" and was unreachable ("failed to resolve host"). Check the service status first when connections fail.
-- Stray folders `.claude/`, `.windsurf/`, `generated/` and duplicate `.gitignore` lines are harmless leftovers.
+- Stray folders `.claude/`, `.agents/`, `.windsurf/`, `agent/` (duplicate copies of the skills directories, also present in git history), and `generated/` are harmless leftovers; the duplicate `.gitignore` lines were removed on 2026-10-10.
 
 ## 12. Known issues and risks
 
@@ -1332,14 +1365,16 @@ Preferences of the project owner: plain-language explanation before code, step-b
 
 ## 13. Roadmap
 
+> Test totals below (196 / 244 / 260) are **historical per-stage snapshots**; the current test baseline is §9 (9 suites via `npm test`; Regression 29/29 recorded 2026-10-10).
+
 1. **Stage 6 — error handling:** ~~custom error classes (Validation 400, NotFound 404, Conflict 400), one central error middleware, 401 for bad/expired tokens, 404 for unknown routes, remove string matching.~~ **COMPLETED**
 2. **Stage 7 — roles:** `requireRole` middleware. **VERIFIED AFTER REMEDIATION.** 14 protected routes enforced: Admin-only (POST /products, POST /products/:id/discontinue, POST /products/:id/reactivate, POST /sales/:id/cancel); Admin+Manager (GET /products, GET /stock/low, POST /stock/receive, POST /sales, GET /sales, GET /sales/:id, POST /reports/daily, GET /reports/:date, GET /reports). 56 authorization tests, 196 total tests pass.
 3. **Stage 8 — missing routes and user management:** **VERIFIED — COMPLETE.** 8 new routes added (2 product, 2 stock, 4 user management). All 22 protected routes enforced. 48 Stage 8 API tests, 244 total tests pass. K9 resolved.
 4. **Stage 9 — hardening:** **VERIFIED — COMPLETE.** K1 (server-side pricing), K2 (atomic stock decrement), K3 (cancellation restocks), K7 (crate/bottle consistency), K8 (shared PrismaClient), plus `helmet`, a CORS allowlist middleware, login rate limiting, body size limit, request validation. 15 security controls verified. 260 total tests pass. K1/K2/K3/K7/K8 resolved.
-4. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved **except K5 (separate test database), which remains OPEN**.
-5. **Stage 11 — production deployment & verification:** **VERIFIED — COMPLETE.** Production database migrations applied via Render Shell, Render Web Service Live, health check verified, 260 total tests pass, all security controls active.
-6. **Stage 12 — frontend development:** **COMPLETE (2026-10-10).** All planned pages implemented (Dashboard, Products, ProductDetail, ProductForm, Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users, Login) with react-query hooks, role-aware routing, and a green production build (`npm run build` in `frontend/`). Backend contract fixes from the audit (reorderLevel 500, crate drift, `/auth/me`, sales include, prod cookie SameSite) shipped in `ec3bb1a`. See section 2 audit summary.
-7. **Stage 13 — frontend deployment:** Vercel deployment, CI/CD pipeline. **Not started** — the app is deploy-ready pending CORS/`VITE_API_BASE_URL` wiring per section 16.5.
+5. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved **except K5 (separate test database), which remains OPEN**.
+6. **Stage 11 — production deployment & verification:** **VERIFIED — COMPLETE.** Production database migrations applied via Render Shell, Render Web Service Live, health check verified, 260 total tests pass, all security controls active.
+7. **Stage 12 — frontend development:** **COMPLETE (2026-10-10).** All planned pages implemented (Dashboard, Products, ProductDetail, ProductForm, Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users, Login) with react-query hooks, role-aware routing, and a green production build (`npm run build` in `frontend/`). Backend contract fixes from the audit (reorderLevel 500, crate drift, `/auth/me`, sales include, prod cookie SameSite) shipped in `ec3bb1a`. See section 2 audit summary.
+8. **Stage 13 — frontend deployment:** Vercel deployment, CI/CD pipeline. **Not started** — the app is deploy-ready pending CORS/`VITE_API_BASE_URL` wiring per section 16.5; the full remaining-work list is the §2 outstanding-work checklist.
 
 Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, expiry alerts via `findExpiringBefore`, low-stock notifications (email/WhatsApp), CSV/PDF report export, audit log, price history, barcode scanning, OpenAPI docs.
 
@@ -1354,7 +1389,7 @@ Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, 
 > **Route deviations from the planned table below:** shipped routes are `/login`, `/` (Dashboard), `/products`, `/products/new`, `/products/:id`, `/products/:id/edit`, `/stock`, `/stock/receive`, `/stock/receive/:productId`, `/sales`, `/sales/new`, `/sales/:id`, `/reports`, `/users`. There is no separate `/stock/:productId`, `/stock/:productId/reorder-level`, `/reports/:date`, `/users/:id`, or `/users/:id/password` page — reorder level, report generation, user creation and password reset are dialogs/forms inside the Stock, Reports and Users pages. Planned extra filters (pagination, sales date/user filters) are not implemented.
 > **Packaging note (RESOLVED 2026-10-10):** `axios` is now declared in `frontend/package.json` (K17); a clean-room `npm ci` + `npm run build` inside an isolated `frontend/` copy passes. Older checkouts before this fix resolved axios only via the root `node_modules`.
 
-### 16.1 Recommended Frontend Stack
+### 16.1 Recommended Frontend Stack (PLAN — actual stack: §2 / the §16 header note above)
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
@@ -1386,8 +1421,6 @@ Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, 
 | `/products/new` | Create product (Admin only) | Private | ADMIN | `POST /products` |
 | `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
 | `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
-| `/products/:id` | Product detail + stock + actions | Private | ADMIN, MANAGER | `GET /products/:id` |
-| `/products/:id/edit` | Edit product (Admin only) | Private | ADMIN | `PUT /products/:id` |
 | `/stock` | Stock overview with search, low-stock filter | Private | ADMIN, MANAGER | `GET /products?includeInactive=true`, `GET /stock/:productId` |
 | `/stock/:productId` | Stock detail + receive stock | Private | ADMIN, MANAGER | `GET /stock/:productId`, `POST /stock/receive` |
 | `/stock/:productId/reorder-level` | Adjust reorder level (Admin) | Private | ADMIN | `PUT /stock/:productId/reorder-level` |
@@ -1399,7 +1432,6 @@ Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, 
 | `/users` | User management (Admin only) | Private | ADMIN | `GET /users`, `POST /users` |
 | `/users/:id` | User detail (Admin) | Private | ADMIN | `GET /users/:id` |
 | `/users/:id/password` | Password reset (Admin) | Private | ADMIN | `PUT /users/:id/password` |
-| `/login` | Login page | Public | — | `POST /auth/login` |
 
 **Navigation:**
 - Persistent sidebar (collapsible on mobile)
@@ -1464,6 +1496,8 @@ frontend/
 └── vercel.json
 ```
 
+> **Actual shipped structure (2026-10-10)** — differs from the plan above: `frontend/src/services/api.ts` (single axios module, not `src/api/`), `src/store/authStore.ts` (no `uiStore`), 8 hooks in `src/hooks/` (`useAuth`, `useDashboard`, `usePermissions`, `useProducts`, `useReports`, `useSales`, `useStock`, `useUsers`; no `useDebounce`), `src/lib/format.ts` (no `src/utils/`), `src/components/{ui,layout,auth}/`, 12 pages in `src/pages/` (no `StockDetail`/`SaleForm`/`ReportDetail`/`UserDetail`; `Login.tsx` once), no `tailwind.config.ts` (Tailwind v4), no `vercel.json` yet (Stage 13).
+
 ### 16.4 Authentication & Token Storage Strategy (VERIFIED — IMPLEMENTED)
 
 **Current Backend (Verified — Cookie-Based Auth Implemented):**
@@ -1603,7 +1637,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 | Phase | Tasks | Deliverable | Status |
 |-------|-------|-------------|--------|
-| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment | ✅ Done |
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier **(shipped instead: oxlint only, no Prettier)**, install deps | Working dev environment | ✅ Done |
 | **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes | ✅ Done |
 | **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav | ✅ Done |
 | **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard | ✅ Done |
@@ -1621,12 +1655,12 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 | Question | Recommendation | Decision Required |
 |----------|----------------|-------------------|
-| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in Stage 13 | ☐ Confirm |
+| JWT expiration: keep 8h or reduce to 1-2h? | Keep 8h for now; revisit with refresh tokens in a later hardening pass (not part of Stage 13) | ☐ Confirm |
 | Cookie migration: simultaneous Bearer + cookie, or hard cut? | Simultaneous support (backend reads both), frontend prefers cookie | ☐ Confirm |
-| Refresh token? | Defer to Stage 13 (add refresh endpoint + silent refresh) | ☐ Defer |
+| Refresh token? | Defer to a later hardening pass (add refresh endpoint + silent refresh; Stage 13 is Vercel deployment only, §17) | ☐ Defer |
 | Real-time updates (stock/sales)? | Defer: polling (30s) or SSE; WebSocket overkill for now | ☐ Defer |
 | Offline support? | Not needed (internal app, stable connectivity) | ✅ Confirmed |
-| Barcode scanning (camera)? | Defer to Stage 13+ (native capability) | ☐ Defer |
+| Barcode scanning (camera)? | Defer to a later pass (native capability) | ☐ Defer |
 
 ---
 
