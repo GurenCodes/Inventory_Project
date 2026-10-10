@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-10 (consistency audit + dependency-fix follow-up session). State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (recorded run 2026-10-10); frontend `npm run build` green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy) + push local commits. **Git: `main` ahead of `origin/main` by 6 commits as of this follow-up session (NOT pushed). Working tree: uncommitted edits to this document pending commit (do not assume clean — always run `git status`).** See section 2 for the authoritative current state and section 12 for open issues (K5, K10–K12, K15, K16, K18).
+Last updated: 2026-10-10 (consistency audit + dependency-fix follow-up session). State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (recorded run 2026-10-10); frontend `npm run build` green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy) + push local commits. **Git: `main` ahead of `origin/main` by 7 commits as of this follow-up session (NOT pushed). Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K10–K12, K15, K16, K18).
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -48,7 +48,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Auth | JWT (HS256, 8h) + HttpOnly cookie `token` (primary) + Bearer header fallback |
 | Frontend | React **19.2**, TypeScript ~6.0, Vite **8.3**, Tailwind CSS **4.3**, React Router **7.18**, TanStack Query 5, Zustand 5, react-hook-form 7, zod 3, axios `^1.20.0` (declared in `frontend/package.json` since 2026-10-10, K17 resolved) |
 | Frontend location | `frontend/` (own `package.json` + lockfile; **not** an npm workspace of the root) |
-| Repo / branch | `https://github.com/GurenCodes/Inventory_Project.git`, branch `main`; **6 commits ahead of `origin/main`, not pushed** (5 audit commits + the K17 dependency-fix commit); working tree had uncommitted edits to this document at last check (never assume clean — verify with `git status`) |
+| Repo / branch | `https://github.com/GurenCodes/Inventory_Project.git`, branch `main`; **7 commits ahead of `origin/main`, not pushed** (5 audit commits + 2 follow-up commits of 2026-10-10); working tree had uncommitted edits to this document at last check (never assume clean — verify with `git status`) |
 
 ### Evidence classification (what is actually proven)
 
@@ -79,7 +79,7 @@ This audit verified claims in this document against the real code and tests. Fin
 
 Known still-open items are tracked in section 12 (K5, K10–K12, K15, K16, K18; **K17 resolved 2026-10-10**).
 
-Git (2026-10-10): branch `main`; **ahead of `origin/main` by 6 commits (the five from the audit — `d877344`, `ec3bb1a`, `da2ab4e`, `af985a5`, `0a894f7` — plus the K17 dependency-fix/docs commit) — push requires owner confirmation per §10**; the tree was clean at commit `0a894f7`, but this document's subsequent audit edits were left as uncommitted working-tree changes — treat "clean" claims in this file as historical unless re-verified.
+Git (2026-10-10): branch `main`; **ahead of `origin/main` by 7 unpushed commits (the five from the audit — `d877344`, `ec3bb1a`, `da2ab4e`, `af985a5`, `0a894f7` — plus this follow-up's K17 dependency-fix commit `50dcde9` and docs commit `86bc0b9`) — push requires owner confirmation per §10**; the tree was clean at commit `0a894f7`, but this document's subsequent audit edits were left as uncommitted working-tree changes — treat "clean" claims in this file as historical unless re-verified.
 
 ## 3. Stack and environment
 
