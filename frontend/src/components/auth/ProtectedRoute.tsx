@@ -1,25 +1,24 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
 interface ProtectedRouteProps {
-  children: React.ReactNode;
   allowedRoles?: string[];
   fallback?: React.ReactNode;
 }
 
-export function ProtectedRoute({ 
-  children, 
+export function ProtectedRoute({
   allowedRoles = ['ADMIN', 'MANAGER'],
-  fallback 
+  fallback,
 }: ProtectedRouteProps) {
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, isInitialized } = useAuth();
   const location = useLocation();
 
-  if (isLoading) {
+  // Wait for auth initialization to complete
+  if (!isInitialized || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center justify-center gap-4">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           <p className="text-gray-600">Loading...</p>
         </div>
       </div>
@@ -27,14 +26,14 @@ export function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: window.location.pathname }} replace />;
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
 
-  // Check role permissions
-  // For now, we'll use a simple role check
-  // In a real app, you might want to use a more sophisticated permission system
+  if (user && !allowedRoles.includes(user.role)) {
+    return fallback ?? <Navigate to="/" replace />;
+  }
 
-  return <>{children}</>;
+  return <Outlet />;
 }
 
 export default ProtectedRoute;

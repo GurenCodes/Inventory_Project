@@ -1104,19 +1104,19 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 ### 16.7 Stage 12 Implementation Sequence
 
-| Phase | Tasks | Deliverable |
-|-------|-------|-------------|
-| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment |
-| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes |
-| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav |
-| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard |
-| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management |
-| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete |
-| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow |
-| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete |
-| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete |
-| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI |
-| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel |
+| Phase | Tasks | Deliverable | Status |
+|-------|-------|-------------|--------|
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment | ✅ Done |
+| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes | ✅ Done |
+| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav | ✅ Done |
+| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard | ✅ Done |
+| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management | ✅ Done |
+| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete | ☐ Pending |
+| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow | ☐ Pending |
+| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete | ☐ Pending |
+| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete | ☐ Pending |
+| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI | ☐ Pending |
+| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel | ☐ Pending |
 
 **Estimated Effort:** ~10-14 days for MVP (Phases 0-6), +3-5 days for polish/deploy.
 
@@ -1512,19 +1512,19 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 ### 16.7 Stage 12 Implementation Sequence
 
-| Phase | Tasks | Deliverable |
-|-------|-------|-------------|
-| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment |
-| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes |
-| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav |
-| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard |
-| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management |
-| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete |
-| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow |
-| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete |
-| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete |
-| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI |
-| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel |
+| Phase | Tasks | Deliverable | Status |
+|-------|-------|-------------|--------|
+| **0. Setup** | Initialize Vite+React+TS+Tailwind, configure ESLint/Prettier, install deps | Working dev environment | ✅ Done |
+| **1. Auth Foundation** | Implement `useAuth`, `login`, `logout`, cookie + fallback storage, route guards | Working login/logout, protected routes | ✅ Done |
+| **2. Layout & Navigation** | Sidebar, header, role-aware navigation, responsive layout | App shell with role-aware nav | ✅ Done |
+| **3. Dashboard** | Low-stock alerts, today's sales, quick actions | Functional dashboard | ✅ Done |
+| **4. Products CRUD** | List, create (Admin), detail, edit (Admin) | Full product management | ✅ Done |
+| **5. Stock Management** | Stock list, detail, receive stock, reorder level (Admin) | Stock management complete | ☐ Pending |
+| **6. Sales** | Sale list, create (checkout), detail, cancel (Admin) | Full sales workflow | ☐ Pending |
+| **6. Reports** | Daily/weekly/monthly views, date picker, generate report | Reporting complete | ☐ Pending |
+| **7. User Management (Admin)** | List, create, view, password reset | Admin panel complete | ☐ Pending |
+| **8. Polish & Hardening** | Error boundaries, loading states, empty states, a11y, dark mode | Production-ready UI | ☐ Pending |
+| **9. Vercel Deploy** | Connect repo, configure env vars, CORS, custom domain | Live on Vercel | ☐ Pending |
 
 **Estimated Effort:** ~10-14 days for MVP (Phases 0-6), +3-5 days for polish/deploy.
 

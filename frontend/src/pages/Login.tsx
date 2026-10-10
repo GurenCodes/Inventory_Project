@@ -1,12 +1,17 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import { EyeIcon, EyeOffIcon } from '../components/ui/Icons';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [lastChar, setLastChar] = useState('');
+  const lastCharTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -21,13 +26,57 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/', { replace: true });
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Login failed');
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setPassword(value);
+
+    if (lastCharTimeoutRef.current) {
+      clearTimeout(lastCharTimeoutRef.current);
+    }
+
+    if (value.length > 0 && !showPassword) {
+      setLastChar(value.slice(-1));
+      lastCharTimeoutRef.current = setTimeout(() => {
+        setLastChar('');
+      }, 1500);
+    } else {
+      setLastChar('');
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    if (lastCharTimeoutRef.current) {
+      clearTimeout(lastCharTimeoutRef.current);
+      lastCharTimeoutRef.current = null;
+    }
+    setLastChar('');
+  };
+
+  const toggleShowPassword = () => {
+    setShowPassword((prev) => !prev);
+    if (lastCharTimeoutRef.current) {
+      clearTimeout(lastCharTimeoutRef.current);
+      lastCharTimeoutRef.current = null;
+    }
+    setLastChar('');
+    setTimeout(() => passwordInputRef.current?.focus(), 0);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (lastCharTimeoutRef.current) {
+        clearTimeout(lastCharTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
@@ -47,7 +96,7 @@ export default function Login() {
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm" role="alert">
               {error}
             </div>
-          )}
+          )
 
           <div className="space-y-4">
             <div>
@@ -74,18 +123,35 @@ export default function Login() {
                   Password
                 </label>
               </div>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input-field mt-1"
-                placeholder="••••••••"
-                disabled={isLoading}
-              />
+              <div className="relative">
+                <input
+                  ref={passwordInputRef}
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={handlePasswordChange}
+                  onBlur={handlePasswordBlur}
+                  className="input-field mt-1 pr-12"
+                  placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={toggleShowPassword}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOffIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
+                </button>
+                {lastChar && !showPassword && (
+                  <span className="absolute right-12 top-1/2 -translate-y-1/2 text-sm text-gray-400 animate-fade-in">
+                    {lastChar}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -110,7 +176,7 @@ export default function Login() {
           </div>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
+        <div className="mt-6 text-center text-sm text-gray-500">
           Demo credentials: <br />
           Admin: admin@floramagg.com / password_1 <br />
           Manager: staff1@floramagg.com / password_1
@@ -119,5 +185,3 @@ export default function Login() {
     </div>
   );
 }
-
-export default Login;

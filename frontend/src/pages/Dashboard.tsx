@@ -1,107 +1,123 @@
-import { useAuth } from '../../hooks/useAuth';
+import { useDashboardData, LowStockItem, RecentSale } from '../hooks/useDashboard';
+import {
+  PackageIcon,
+  AlertTriangleIcon,
+  DollarSignIcon,
+  TruckIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  EyeIcon,
+  DownloadIcon,
+  RefreshIcon,
+} from '../components/ui/Icons';
+
+const statCards = [
+  {
+    name: 'Total Products',
+    icon: PackageIcon,
+    iconColor: 'text-primary',
+    iconBg: 'bg-primary/10',
+  },
+  {
+    name: 'Low Stock Items',
+    icon: AlertTriangleIcon,
+    iconColor: 'text-warning',
+    iconBg: 'bg-warning/10',
+  },
+  {
+    name: "Today's Sales",
+    icon: DollarSignIcon,
+    iconColor: 'text-success',
+    iconBg: 'bg-success/10',
+  },
+  {
+    name: 'Critical Alerts',
+    icon: TruckIcon,
+    iconColor: 'text-danger',
+    iconBg: 'bg-danger/10',
+  },
+] as const;
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-CM', {
+    style: 'currency',
+    currency: 'XAF',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getStatusBadgeClass(status: string): string {
+  switch (status.toLowerCase()) {
+    case 'completed':
+      return 'badge-success';
+    case 'pending':
+      return 'badge-warning';
+    case 'cancelled':
+      return 'badge-danger';
+    default:
+      return 'badge-gray';
+  }
+}
+
+function getStockStatusClass(status: string): string {
+  switch (status) {
+    case 'critical':
+      return 'badge-danger';
+    case 'low':
+      return 'badge-warning';
+    default:
+      return 'badge-success';
+  }
+}
+
+function getStockStatusLabel(status: string): string {
+  switch (status) {
+    case 'critical':
+      return 'Critical';
+    case 'low':
+      return 'Low';
+    default:
+      return 'OK';
+  }
+}
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { stats, lowStock, recentSales, isLoading, isError, error, refetch } = useDashboardData();
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7v10l8 4" />
-                </svg>
-              </div>
-              <span className="text-xl font-bold text-gray-900">Floramagg Inventory</span>
-            </div>
-            <nav className="flex items-center gap-4">
-              <a href="/" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Dashboard</a>
-              <a href="/products" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Products</a>
-              <a href="/stock" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Stock</a>
-              <a href="/sales" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Sales</a>
-              <a href="/reports" className="text-sm font-medium text-gray-700 hover:text-primary transition-colors">Reports</a>
-              <div className="w-px h-6 bg-gray-200 mx-2"></div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500">Manager</span>
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-sm font-medium">
-                  M
+  if (isLoading) {
+    return (
+      <div className="space-y-8 animate-pulse">
+        <div>
+          <div className="h-8 bg-gray-200 rounded w-48 mb-2" />
+          <div className="h-4 bg-gray-200 rounded w-64" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="card">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="h-4 bg-gray-200 rounded w-32 mb-2" />
+                  <div className="h-8 bg-gray-200 rounded w-24" />
                 </div>
-                <button className="btn-secondary text-sm py-1.5 px-3">Logout</button>
+                <div className="w-12 h-12 bg-gray-200 rounded-lg" />
               </div>
-            </nav>
-          </div>
+            </div>
+          ))}
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="page-title">Dashboard</h1>
-          <p className="text-gray-600 mt-1">Welcome back! Here's an overview of your inventory.</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Total Products</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">124</p>
-              </div>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7v10l8 4" />
-                </svg>
-              </div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Low Stock Items</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">7</p>
-              </div>
-              <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.833 1.732 2.833h16.536c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-.833-1.964-.833-2.732 0z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Today's Sales</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">FCFA 124,500</p>
-              </div>
-              <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3-2 1.343-2 3-2-.895-2-3-2-.895-2-3-2-1.343-2-3-2zm0 4c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3-2 1.343-2 3-2-.895-2-3-2-1.343-2-3-2z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Low Stock Alerts</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">3</p>
-              </div>
-              <div className="w-12 h-12 bg-danger/10 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.833 1.732 2.833h16.536c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-.833-1.964-.833-2.732 0z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
             <div className="card">
-              <div className="card-header">
-                <h2 className="text-lg font-semibold text-gray-900">Low Stock Alerts</h2>
-              </div>
               <div className="card-body">
                 <div className="table-container">
                   <table className="table-base">
@@ -115,47 +131,23 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody className="table-body">
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-medium">Mango Juice 1L</td>
-                        <td className="table-cell">Juice</td>
-                        <td className="table-cell text-right text-danger font-medium">3</td>
-                        <td className="table-cell text-right">20</td>
-                        <td className="table-cell"><span className="badge badge-danger">Critical</span></td>
-                      </tr>
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-medium">Orange Juice 500ml</td>
-                        <td className="table-cell">Juice</td>
-                        <td className="table-cell text-right text-warning font-medium">12</td>
-                        <td className="table-cell text-right">15</td>
-                        <td className="table-cell"><span className="badge badge-warning">Low</span></td>
-                      </tr>
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-medium">Pineapple Juice 1L</td>
-                        <td className="table-cell">Juice</td>
-                        <td className="table-cell text-right text-warning font-medium">8</td>
-                        <td className="table-cell text-right">10</td>
-                        <td className="table-cell"><span className="badge badge-warning">Low</span></td>
-                      </tr>
+                      {[...Array(3)].map((_, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-32" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+                          <td className="table-cell text-right"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                          <td className="table-cell text-right"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </div>
             </div>
           </div>
-
           <div className="lg:col-span-3">
             <div className="card">
-              <div className="card-header flex flex-wrap items-center justify-between gap-4">
-                <h2 className="text-lg font-semibold text-gray-900">Low Stock Alerts</h2>
-                <div className="flex items-center gap-2">
-                  <select className="input-field w-auto">
-                    <option>Today</option>
-                    <option>This Week</option>
-                    <option>This Month</option>
-                  </select>
-                  <button className="btn-secondary text-sm py-1.5 px-3">Export</button>
-                </div>
-              </div>
               <div className="card-body">
                 <div className="table-container">
                   <table className="table-base">
@@ -171,33 +163,17 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody className="table-body">
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-mono text-sm">#SAL-001</td>
-                        <td className="table-cell">Le Bon Goût Restaurant</td>
-                        <td className="table-cell">12 items</td>
-                        <td className="table-cell text-right font-medium">FCFA 125,500</td>
-                        <td className="table-cell"><span className="badge badge-success">Completed</span></td>
-                        <td className="table-cell text-gray-500 text-sm">Oct 9, 2026 10:30</td>
-                        <td className="table-cell"><button className="text-primary hover:text-primary-hover text-sm font-medium">View</button></td>
-                      </tr>
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-mono text-sm">#SAL-002</td>
-                        <td className="table-cell">Super Marché Yaoundé</td>
-                        <td className="table-cell">8 items</td>
-                        <td className="table-cell text-right font-medium">FCFA 89,200</td>
-                        <td className="table-cell"><span className="badge badge-success">Completed</span></td>
-                        <td className="table-cell text-gray-500 text-sm">Oct 9, 2026 09:15</td>
-                        <td className="table-cell"><button className="text-primary hover:text-primary-hover text-sm font-medium">View</button></td>
-                      </tr>
-                      <tr className="hover:bg-gray-50">
-                        <td className="table-cell font-mono text-sm">#SAL-003</td>
-                        <td className="table-cell">Bistro Le Gourmet</td>
-                        <td className="table-cell">5 items</td>
-                        <td className="table-cell text-right font-medium">FCFA 45,750</td>
-                        <td className="table-cell"><span className="badge badge-warning">Pending</span></td>
-                        <td className="table-cell text-gray-500 text-sm">Oct 9, 2026 08:45</td>
-                        <td className="table-cell"><button className="text-primary hover:text-primary-hover text-sm font-medium">View</button></td>
-                      </tr>
+                      {[...Array(3)].map((_, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-32" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                          <td className="table-cell text-right"><div className="h-4 bg-gray-200 rounded w-20" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-16" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-24" /></td>
+                          <td className="table-cell"><div className="h-4 bg-gray-200 rounded w-12" /></td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -205,9 +181,209 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="card text-center py-12">
+        <ExclamationCircleIcon className="w-12 h-12 text-danger mx-auto mb-4" />
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Failed to load dashboard</h2>
+        <p className="text-gray-500 mb-4">{error instanceof Error ? error.message : 'An unexpected error occurred'}</p>
+        <button
+          onClick={refetch}
+          className="btn-primary"
+        >
+          <RefreshIcon className="w-4 h-4 mr-2" />
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const totalProducts = stats?.totalProducts ?? 0;
+  const lowStockCount = stats?.lowStockCount ?? 0;
+  const todaySalesAmount = stats?.todaySalesAmount ?? 0;
+  const criticalAlertsCount = stats?.lowStockAlertsCount ?? 0;
+
+  const statValues = [totalProducts, lowStockCount, formatCurrency(todaySalesAmount), criticalAlertsCount];
+
+  return (
+    <div className="space-y-8">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="text-gray-600 mt-1">Welcome back! Here's an overview of your inventory.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={refetch} className="btn-secondary" aria-label="Refresh data">
+            <RefreshIcon className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {statCards.map((card, index) => (
+          <div key={card.name} className="card hover:shadow-md transition-shadow duration-200 ease-out">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-500 truncate">{card.name}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">
+                  {statValues[index] ?? '—'}
+                </p>
+              </div>
+              <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${card.iconBg}`}>
+                <card.icon className={`w-6 h-6 ${card.iconColor}`} aria-hidden="true" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Low Stock & Recent Sales */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Low Stock Alerts */}
+        <div className="lg:col-span-2">
+          <div className="card">
+            <div className="card-header flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Low Stock Alerts</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={refetch}
+                  className="btn-secondary text-sm py-1.5 px-3"
+                  aria-label="Refresh low stock data"
+                >
+                  <RefreshIcon className="w-4 h-4 mr-2" />
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div className="card-body">
+              {lowStock && lowStock.length > 0 ? (
+                <div className="table-container">
+                  <table className="table-base">
+                    <thead className="table-header">
+                      <tr>
+                        <th className="table-header-cell">Product</th>
+                        <th className="table-header-cell">Category</th>
+                        <th className="table-header-cell text-right">Current Stock</th>
+                        <th className="table-header-cell text-right">Reorder Level</th>
+                        <th className="table-header-cell">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="table-body divide-y divide-gray-100">
+                      {lowStock.map((item: LowStockItem) => (
+                        <tr key={item.productId} className="hover:bg-gray-50 transition-colors duration-100 ease-out">
+                          <td className="table-cell font-medium">{item.productName}</td>
+                          <td className="table-cell text-gray-600">{item.category || '—'}</td>
+                          <td className="table-cell text-right font-medium">
+                            {item.status === 'critical' ? (
+                              <span className="text-danger">{item.quantityBottles}</span>
+                            ) : item.status === 'low' ? (
+                              <span className="text-warning">{item.quantityBottles}</span>
+                            ) : (
+                              item.quantityBottles
+                            )}
+                          </td>
+                          <td className="table-cell text-right text-gray-500">{item.reorderLevel}</td>
+                          <td className="table-cell">
+                            <span className={getStockStatusClass(item.status)}>
+                              {getStockStatusLabel(item.status)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <CheckCircleIcon className="w-12 h-12 text-success mx-auto mb-3" />
+                  <p className="text-gray-500">No low stock items. All products are well-stocked.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Sales */}
+        <div className="lg:col-span-3">
+          <div className="card">
+            <div className="card-header flex flex-wrap items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Recent Sales</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={refetch}
+                  className="btn-secondary text-sm py-1.5 px-3"
+                  aria-label="Refresh sales data"
+                >
+                  <RefreshIcon className="w-4 h-4 mr-2" />
+                  Refresh
+                </button>
+                <button className="btn-secondary text-sm py-1.5 px-3" aria-label="Export sales data">
+                  <DownloadIcon className="w-4 h-4 mr-2" />
+                  Export
+                </button>
+              </div>
+            </div>
+            <div className="card-body">
+              {recentSales && recentSales.length > 0 ? (
+                <div className="table-container">
+                  <table className="table-base">
+                    <thead className="table-header">
+                      <tr>
+                        <th className="table-header-cell">Sale ID</th>
+                        <th className="table-header-cell">Sold By</th>
+                        <th className="table-header-cell">Items</th>
+                        <th className="table-header-cell text-right">Total</th>
+                        <th className="table-header-cell">Status</th>
+                        <th className="table-header-cell">Date</th>
+                        <th className="table-header-cell">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="table-body divide-y divide-gray-100">
+                      {recentSales.map((sale: RecentSale) => (
+                        <tr key={sale.id} className="hover:bg-gray-50 transition-colors duration-100 ease-out">
+                          <td className="table-cell font-mono text-sm">#{sale.id.toString().padStart(5, '0')}</td>
+                          <td className="table-cell">{sale.soldByName}</td>
+                          <td className="table-cell text-gray-600">{sale.itemCount} item{sale.itemCount !== 1 ? 's' : ''}</td>
+                          <td className="table-cell text-right font-medium">{formatCurrency(sale.totalAmount)}</td>
+                          <td className="table-cell">
+                            <span className={getStatusBadgeClass(sale.status)}>
+                              {sale.status.charAt(0).toUpperCase() + sale.status.slice(1)}
+                            </span>
+                          </td>
+                          <td className="table-cell text-gray-500 text-sm">{formatDate(sale.createdAt)}</td>
+                          <td className="table-cell">
+                            <button
+                              className="text-primary hover:text-primary-hover text-sm font-medium flex items-center gap-1 transition-colors duration-150 ease-out"
+                              aria-label={`View sale #${sale.id}`}
+                            >
+                              <EyeIcon className="w-4 h-4" />
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <DollarSignIcon className="w-6 h-6 text-gray-400" />
+                  </div>
+                  <p className="text-gray-500">No sales recorded yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-
-export default Dashboard;

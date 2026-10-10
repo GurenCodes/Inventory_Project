@@ -1,5 +1,5 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { useAuthStore } from '../store/authStore';
+import axios, { AxiosError } from 'axios';
+import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://inventory-project-6szy.onrender.com';
 
@@ -16,36 +16,11 @@ class ApiClient {
       timeout: 30000,
     });
 
-    // Request interceptor to add auth token
-    this.client.interceptors.request.use(
-      (config: InternalAxiosRequestConfig) => {
-        const { token } = useAuthStore.getState();
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    // Response interceptor for error handling
+    // Response interceptor for error handling - just pass through errors
+    // The ProtectedRoute component will handle 401 redirects
     this.client.interceptors.response.use(
       (response) => response,
-      async (error: AxiosError) => {
-        const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-
-        if (error.response?.status === 401 && !originalRequest._retry) {
-          originalRequest._retry = true;
-          
-          // Try to refresh token if we have a refresh mechanism
-          // For now, just redirect to login
-          if (window.location.pathname !== '/login') {
-            const { logout } = useAuthStore.getState();
-            logout();
-            window.location.href = '/login';
-          }
-        }
-
+      (error: AxiosError) => {
         return Promise.reject(error);
       }
     );
@@ -77,23 +52,23 @@ export const apiClient = new ApiClient();
 // API Endpoints
 export const endpoints = {
   auth: {
-    login: '/auth/login',
-    logout: '/auth/logout',
+    login: { url: '/auth/login', params: {} },
+    logout: { url: '/auth/logout', params: {} },
   },
   products: {
     list: (params?: { category?: string; includeInactive?: boolean }) => ({
       url: '/products',
       params,
     }),
-    get: (id: number) => ({ url: `/products/${id}` }),
+    get: (id: number) => ({ url: `/products/${id}`, params: {} }),
     create: (data: any) => ({ url: '/products', data }),
     update: (id: number, data: any) => ({ url: `/products/${id}`, data }),
-    discontinue: (id: number) => ({ url: `/products/${id}/discontinue` }),
-    reactivate: (id: number) => ({ url: `/products/${id}/reactivate` }),
+    discontinue: (id: number) => ({ url: `/products/${id}/discontinue`, params: {} }),
+    reactivate: (id: number) => ({ url: `/products/${id}/reactivate`, params: {} }),
   },
   stock: {
-    low: () => ({ url: '/stock/low' }),
-    get: (productId: number) => ({ url: `/stock/${productId}` }),
+    low: () => ({ url: '/stock/low', params: {} }),
+    get: (productId: number) => ({ url: `/stock/${productId}`, params: {} }),
     receive: (data: any) => ({ url: '/stock/receive', data }),
     adjustReorderLevel: (productId: number, reorderLevel: number) => ({
       url: `/stock/${productId}/reorder-level`,
@@ -102,18 +77,18 @@ export const endpoints = {
   },
   sales: {
     list: (params?: { status?: string }) => ({ url: '/sales', params }),
-    get: (id: number) => ({ url: `/sales/${id}` }),
+    get: (id: number) => ({ url: `/sales/${id}`, params: {} }),
     create: (data: any) => ({ url: '/sales', data }),
-    cancel: (id: number) => ({ url: `/sales/${id}/cancel` }),
+    cancel: (id: number) => ({ url: `/sales/${id}/cancel`, params: {} }),
   },
   reports: {
     daily: (data: { date: string }) => ({ url: '/reports/daily', data }),
-    get: (date: string) => ({ url: `/reports/${date}` }),
+    get: (date: string) => ({ url: `/reports/${date}`, params: {} }),
     list: (params: { start: string; end: string }) => ({ url: '/reports', params }),
   },
   users: {
     list: (role?: string) => ({ url: '/users', params: { role } }),
-    get: (id: number) => ({ url: `/users/${id}` }),
+    get: (id: number) => ({ url: `/users/${id}`, params: {} }),
     create: (data: any) => ({ url: '/users', data }),
     updatePassword: (id: number, password: string) => ({
       url: `/users/${id}/password`,

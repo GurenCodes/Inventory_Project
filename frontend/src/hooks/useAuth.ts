@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 
 export function useAuth() {
-  const { user, token, isAuthenticated, isLoading, login, logout, setLoading } = useAuthStore();
+  const { user, isAuthenticated, isLoading, isInitialized, login, logout, setLoading } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -36,6 +36,7 @@ export function useAuth() {
     token: user ? 'authenticated' : null,
     isAuthenticated,
     isLoading,
+    isInitialized,
     login,
     logout,
     loginWithRedirect,

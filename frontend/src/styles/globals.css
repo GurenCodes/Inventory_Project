@@ -108,3 +108,107 @@
 @utility badge-gray {
   @apply badge bg-gray-100 text-gray-800;
 }
+
+@utility animate-fade-in {
+  animation: fadeIn 200ms var(--ease-out) forwards;
+}
+
+@utility animate-slide-up {
+  animation: slideUp 300ms var(--ease-out) forwards;
+}
+
+@utility animate-scale-in {
+  animation: scaleIn 150ms var(--ease-out) forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility stagger-1 { animation-delay: 0ms; }
+@utility stagger-2 { animation-delay: 50ms; }
+@utility stagger-3 { animation-delay: 100ms; }
+@utility stagger-4 { animation-delay: 150ms; }
+@utility stagger-5 { animation-delay: 200ms; }
+@utility stagger-6 { animation-delay: 250ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift {
+    transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.1);
+  }
+}
+
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@utility btn-primary {
+  @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 transition-colors duration-150 ease-out active:scale-[0.97];
+}
+
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-secondary hover:bg-secondary-hover focus:outline-none focus:ring-2 focus:ring-secondary focus:ring-offset-2 transition-colors duration-150 ease-out active:scale-[0.97];
+}
+
+@utility btn-danger {
+  @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-danger hover:bg-danger-hover focus:outline-none focus:ring-2 focus:ring-danger focus:ring-offset-2 transition-colors duration-150 ease-out active:scale-[0.97];
+}
+
+/* Hide React Query Devtools floating button */
+.rq-devtools-button,
+[data-rq-devtools-button],
+.rq-devtools-wrapper button {
+  display: none !important;
+}
+
+@utility input-field {
+  @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-colors duration-150 ease-out;
+}
+
+@utility select-field {
+  @apply w-full px-3 py-2 text-sm border border-gray-300 rounded-lg shadow-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-colors duration-150 ease-out;
+}
