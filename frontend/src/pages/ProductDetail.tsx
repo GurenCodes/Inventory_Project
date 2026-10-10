@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import { useProduct, useDiscontinueProduct, useReactivateProduct } from '../hooks/useProducts';
 import {
@@ -32,13 +33,16 @@ export default function ProductDetail() {
     try {
       if (showConfirm.type === 'discontinue') {
         await discontinueMutation.mutateAsync(product.id);
+        toast.success('Product discontinued');
       } else {
         await reactivateMutation.mutateAsync(product.id);
+        toast.success('Product reactivated');
       }
       setShowConfirm(null);
       await refetch();
     } catch (err) {
       console.error('Action failed:', err);
+      toast.error(err instanceof Error ? err.message : 'Action failed');
     }
   };
 
@@ -222,12 +226,8 @@ export default function ProductDetail() {
               <dd className="mt-1 text-gray-900">{product.category || 'Uncategorized'}</dd>
             </div>
             <div>
-              <dt className="text-gray-500 text-sm">Created</dt>
-              <dd className="mt-1 text-gray-900 text-sm">{new Date(product.createdAt).toLocaleDateString()}</dd>
-            </div>
-            <div>
-              <dt className="text-gray-500 text-sm">Updated</dt>
-              <dd className="mt-1 text-gray-900 text-sm">{new Date(product.updatedAt).toLocaleDateString()}</dd>
+              <dt className="text-gray-500 text-sm">Crate size</dt>
+              <dd className="mt-1 text-gray-900 text-sm">{product.crateSize ? `${product.crateSize} bottles` : 'Not set'}</dd>
             </div>
           </dl>
         </div>

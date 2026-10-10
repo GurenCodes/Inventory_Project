@@ -21,7 +21,7 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: HomeIcon, roles: ['ADMIN', 'MANAGER'] },
+  { name: 'Dashboard', href: '/', icon: HomeIcon, roles: ['ADMIN', 'MANAGER'] },
   { name: 'Products', href: '/products', icon: PackageIcon, roles: ['ADMIN', 'MANAGER'] },
   { name: 'Stock', href: '/stock', icon: WarehouseIcon, roles: ['ADMIN', 'MANAGER'] },
   { name: 'Sales', href: '/sales', icon: ShoppingCartIcon, roles: ['ADMIN', 'MANAGER'] },
@@ -103,6 +103,7 @@ export default function Layout() {
               <NavLink
                 key={item.name}
                 to={item.href}
+                end={item.href === '/'}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors duration-150 ease-out ${
                     isActive

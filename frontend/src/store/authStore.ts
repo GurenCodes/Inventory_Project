@@ -22,7 +22,32 @@ interface AuthState {
   initializeAuth: () => Promise<void>;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://inventory-project-6szy.onrender.com';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3000' : 'https://inventory-project-6szy.onrender.com');
+
+// Fallback token storage (per-tab). The primary credential is the HttpOnly
+// cookie set by the backend; this token from the login response body is only
+// used as an Authorization-header fallback if the cookie is unavailable
+// (e.g. browser blocks third-party cookies). Never use localStorage.
+const TOKEN_KEY = 'auth-token';
+
+export function getStoredToken(): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeToken(token: string | null) {
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY, token);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore storage failures (private mode etc.)
+  }
+}
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -46,20 +71,20 @@ export const useAuthStore = create<AuthState>()(
           });
 
           if (!response.ok) {
-            const error = await response.json();
+            const error = await response.json().catch(() => ({}));
             throw new Error(error.error || 'Login failed');
           }
 
           const data = await response.json();
-          const { token: _token, user } = data;
+          const { token, user } = data;
 
-          // Token is now stored in HttpOnly cookie by the backend
-          // We only store user info in sessionStorage for display purposes
-          sessionStorage.setItem('user', JSON.stringify(user));
+          // Primary auth: HttpOnly cookie set by the backend.
+          // Keep the body token as a per-tab fallback for Authorization header.
+          storeToken(token);
 
           set({
             user,
-            token: 'authenticated', // Token is in HttpOnly cookie, we just mark as authenticated
+            token,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -70,17 +95,16 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        // Clear session storage
-        sessionStorage.removeItem('user');
-        
+        storeToken(null);
+
         // Call backend logout to clear the cookie
         try {
           await fetch(`${API_BASE_URL}/auth/logout`, {
             method: 'POST',
             credentials: 'include',
           });
-        } catch (e) {
-          // Ignore errors
+        } catch {
+          // Ignore errors - local logout proceeds either way
         }
 
         set({
@@ -91,12 +115,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setToken: (token: string) => {
-        // Token is now in HttpOnly cookie, this is kept for compatibility
+        storeToken(token);
         set({ token, isAuthenticated: true });
       },
 
       setUser: (user) => {
-        sessionStorage.setItem('user', JSON.stringify(user));
         set({ user, isAuthenticated: true });
       },
 
@@ -104,66 +127,57 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading });
       },
 
-initializeAuth: async () => {
-        // If already initialized, skip
+      initializeAuth: async () => {
         if (get().isInitialized) return;
-        
         set({ isLoading: true });
-        
+
         try {
-          // Try to verify the session by calling a protected endpoint
-          // Use a timeout to prevent hanging
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          
+          const timeoutId = setTimeout(() => controller.abort(), 15000);
+
           try {
-            const response = await fetch(`${API_BASE_URL}/products`, {
+            // /auth/me validates the HttpOnly cookie (or fallback token, which
+            // the API client attaches automatically) and returns the user.
+            const headers: Record<string, string> = {};
+            const fallbackToken = getStoredToken();
+            if (fallbackToken) headers['Authorization'] = `Bearer ${fallbackToken}`;
+
+            const response = await fetch(`${API_BASE_URL}/auth/me`, {
               method: 'GET',
               credentials: 'include',
+              headers,
               signal: controller.signal,
             });
-            
             clearTimeout(timeoutId);
-            
+
             if (response.ok) {
-              // Session is valid, but we need user info
-              // Check sessionStorage for cached user data
-              const storedUser = sessionStorage.getItem('user');
-              if (storedUser) {
-                const user = JSON.parse(storedUser);
-                set({
-                  user,
-                  isAuthenticated: true,
-                  isLoading: false,
-                  isInitialized: true,
-                });
-                return;
-              }
-              
-              // Session is valid but no cached user - we need user info
-              // For now, mark as authenticated but we'll need to fetch user details
-              // This would require a /auth/me endpoint which doesn't exist yet
-              set({ isAuthenticated: true, isLoading: false, isInitialized: true });
+              const user: User = await response.json();
+              set({
+                user,
+                isAuthenticated: true,
+                isLoading: false,
+                isInitialized: true,
+              });
               return;
             }
-          } catch (fetchError) {
+          } catch {
             clearTimeout(timeoutId);
             // Network error or timeout - treat as unauthenticated
           }
-          
-          // No valid session or network error
-          sessionStorage.removeItem('user');
-          set({ isLoading: false, isInitialized: true, isAuthenticated: false });
-        } catch (error) {
-          // If any error, just mark as initialized and not authenticated
-          set({ isLoading: false, isInitialized: true, isAuthenticated: false });
+
+          // No valid session
+          storeToken(null);
+          set({ user: null, token: null, isLoading: false, isInitialized: true, isAuthenticated: false });
+        } catch {
+          set({ user: null, token: null, isLoading: false, isInitialized: true, isAuthenticated: false });
         }
       },
     }),
     {
       name: 'auth-storage',
       partialize: (state) => ({
-        // Token is in HttpOnly cookie, don't persist it
+        // Never persist the token; the HttpOnly cookie is the credential.
+        // User info is re-fetched from /auth/me on startup.
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),

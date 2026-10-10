@@ -8,8 +8,6 @@ export interface Product {
   unitPrice: number;
   crateSize: number | null;
   isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
   stock?: {
     quantityBottles: number;
     quantityCrates: number;
@@ -30,6 +28,7 @@ export interface UpdateProductData {
   category?: string | null;
   unitPrice?: number;
   crateSize?: number | null;
+  reorderLevel?: number | null;
 }
 
 export function useProducts(category?: string, includeInactive = false) {

@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import { useProduct, useCreateProduct, useUpdateProduct } from '../hooks/useProducts';
 import {
@@ -69,6 +71,19 @@ export default function ProductForm() {
   // Populate form when editing
   const unitPriceInput = watch('unitPrice');
 
+  // Initialize form with product data when editing (in an effect, not during render)
+  useEffect(() => {
+    if (isEdit && product) {
+      reset({
+        name: product.name,
+        category: product.category || '',
+        unitPrice: Number(product.unitPrice),
+        crateSize: product.crateSize || undefined,
+        reorderLevel: product.stock?.reorderLevel ?? undefined,
+      });
+    }
+  }, [isEdit, product, reset]);
+
   if (isEdit && loadingProduct) {
     return (
       <div className="max-w-2xl mx-auto space-y-6 animate-pulse">
@@ -91,27 +106,19 @@ export default function ProductForm() {
     );
   }
 
-  // Initialize form with product data when editing
-  if (isEdit && product) {
-    reset({
-      name: product.name,
-      category: product.category || '',
-      unitPrice: Number(product.unitPrice),
-      crateSize: product.crateSize || undefined,
-      reorderLevel: product.stock?.reorderLevel || undefined,
-    });
-  }
-
   const onSubmit = async (data: ProductFormData) => {
     try {
       if (isEdit && productId) {
         await updateMutation.mutateAsync({ id: productId, data });
+        toast.success('Product updated');
       } else {
         await createMutation.mutateAsync(data);
+        toast.success('Product created');
       }
       navigate('/products');
     } catch (err) {
       console.error('Submit error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to save product');
     }
   };
 

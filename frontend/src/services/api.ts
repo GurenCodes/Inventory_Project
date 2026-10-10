@@ -1,7 +1,10 @@
 import axios, { AxiosError } from 'axios';
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
+import { getStoredToken } from '../store/authStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://inventory-project-6szy.onrender.com';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? 'http://localhost:3000' : 'https://inventory-project-6szy.onrender.com');
 
 class ApiClient {
   private client: AxiosInstance;
@@ -14,6 +17,16 @@ class ApiClient {
       },
       withCredentials: true,
       timeout: 30000,
+    });
+
+    // Attach the fallback Authorization header when a token exists in
+    // sessionStorage. The HttpOnly cookie remains the primary credential.
+    this.client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+      const token = getStoredToken();
+      if (token && !config.headers.Authorization) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
     });
 
     // Response interceptor for error handling - just pass through errors
