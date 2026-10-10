@@ -34,6 +34,7 @@ class DailyReportRepository {
       where: {
         reportDate: { gte: startDate, lte: endDate },
       },
+      include: { generatedBy: { select: { id: true, fullName: true } } },
       orderBy: { reportDate: 'asc' },
     });
   }
