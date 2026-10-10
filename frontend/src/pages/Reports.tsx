@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useReports, useGenerateReport, DailyReport } from '../hooks/useReports';
-import { formatCurrency, formatReportDate } from '../lib/format';
+import { formatCurrency, formatReportDate, businessToday, businessDaysAgo } from '../lib/format';
 import {
   ChartBarIcon,
   AlertTriangleIcon,
@@ -10,18 +10,10 @@ import {
   CheckCircleIcon,
 } from '../components/ui/Icons';
 
-function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function daysAgoUtc(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
 export default function Reports() {
-  const [start, setStart] = useState(() => daysAgoUtc(6));
-  const [end, setEnd] = useState(() => todayUtc());
-  const [generateDate, setGenerateDate] = useState(() => todayUtc());
+  const [start, setStart] = useState(() => businessDaysAgo(6));
+  const [end, setEnd] = useState(() => businessToday());
+  const [generateDate, setGenerateDate] = useState(() => businessToday());
   const [lastGenerated, setLastGenerated] = useState<DailyReport | null>(null);
 
   const { data: reports, isLoading, isError, error } = useReports(start, end);
@@ -37,7 +29,7 @@ export default function Reports() {
       toast.error('Pick a date first');
       return;
     }
-    if (generateDate > todayUtc()) {
+    if (generateDate > businessToday()) {
       toast.error('Cannot generate a report for a future date');
       return;
     }
@@ -95,7 +87,7 @@ export default function Reports() {
               <input
                 id="generate-date"
                 type="date"
-                max={todayUtc()}
+                max={businessToday()}
                 value={generateDate}
                 onChange={(e) => setGenerateDate(e.target.value)}
                 className="input-field"
@@ -144,7 +136,7 @@ export default function Reports() {
                 type="date"
                 value={end}
                 min={start}
-                max={todayUtc()}
+                max={businessToday()}
                 onChange={(e) => setEnd(e.target.value)}
                 className="input-field"
               />

@@ -16,6 +16,7 @@ interface AuthState {
   isInitialized: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  clearSession: () => void;
   setToken: (token: string) => void;
   setUser: (user: User) => void;
   setLoading: (loading: boolean) => void;
@@ -30,6 +31,12 @@ const API_BASE_URL =
 // cookie set by the backend; this token from the login response body is only
 // used as an Authorization-header fallback if the cookie is unavailable
 // (e.g. browser blocks third-party cookies). Never use localStorage.
+// SECURITY TRADE-OFF (documented, 2026-10): malicious JS running in this
+// origin could read sessionStorage. Removing the fallback (cookie-only
+// auth) is a deployment decision that depends on third-party-cookie support
+// for the Vercel -> Render cross-origin setup, which cannot be verified
+// until the frontend is deployed. Until then the fallback is retained on
+// purpose; do not treat the cookie as XSS-immune.
 const TOKEN_KEY = 'auth-token';
 
 export function getStoredToken(): string | null {
@@ -114,6 +121,18 @@ export const useAuthStore = create<AuthState>()(
         });
       },
 
+      // Local session reset without a network call. Used when an API
+      // response comes back 401 (expired/invalid/revoked credentials) so
+      // the UI never stays incorrectly authenticated.
+      clearSession: () => {
+        storeToken(null);
+        set({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+        });
+      },
+
       setToken: (token: string) => {
         storeToken(token);
         set({ token, isAuthenticated: true });
@@ -176,10 +195,12 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       partialize: (state) => ({
-        // Never persist the token; the HttpOnly cookie is the credential.
-        // User info is re-fetched from /auth/me on startup.
+        // Never persist the token or an auth flag: the HttpOnly cookie is
+        // the credential, and `isAuthenticated` must always be re-derived
+        // from /auth/me on startup (a stale `true` in storage would be a
+        // lie after cookie expiry or logout on another tab). Only the
+        // user's display info is cached.
         user: state.user,
-        isAuthenticated: state.isAuthenticated,
       }),
     }
   )

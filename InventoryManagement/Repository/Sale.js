@@ -44,11 +44,12 @@ class SaleRepository {
     });
   }
 
-  // Sales within a date range (for reporting)
-  async findByDateRange(startDate, endDate) {
+  // Sales within a half-open business-day interval (for reporting):
+  // startInclusive <= createdAt < endExclusive.
+  async findByDateRange(startInclusive, endExclusive) {
     return prisma.sale.findMany({
       where: {
-        createdAt: { gte: startDate, lte: endDate },
+        createdAt: { gte: startInclusive, lt: endExclusive },
       },
     });
   }

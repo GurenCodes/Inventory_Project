@@ -58,35 +58,33 @@ class StockService {
     const totalBottlesAdded = bottlesFromCrates + (bottleCount ?? 0);
 
     // $transaction ensures both writes succeed together or not at all.
-    // K7: quantityCrates is always recalculated from total bottles so it
-    // never drifts when the existing stock held partial crates.
+    // K7 (2026-10 revision): bottles AND crates are updated in ONE atomic
+    // parameterized SQL statement — crates are recomputed from the row's own
+    // post-update bottle total when the product has a valid crateSize
+    // (crates += delivered crates otherwise, preserving K12 behavior).
+    // This removes the former read-then-guard window: concurrent deliveries
+    // can no longer fail spuriously or leave a stale crate count, and a
+    // missing stock row is the only failure mode of the stock update.
     const result = await prisma.$transaction(
       async (tx) => {
         const batchOrder = await tx.itemBatchOrder.create({
           data: { productId, receivedById, crateCount: crateCount ?? 0, bottleCount: bottleCount ?? 0, costPerUnit, expiryDate },
         });
 
-        const stock = await tx.stock.findUnique({ where: { productId } });
-        if (!stock) {
+        const affected = crateSize > 0
+          ? await tx.$executeRaw`
+              UPDATE "Stock"
+              SET "quantityBottles" = "quantityBottles" + ${totalBottlesAdded},
+                  "quantityCrates" = FLOOR(("quantityBottles" + ${totalBottlesAdded})::numeric / ${crateSize})
+              WHERE "productId" = ${productId}`
+          : await tx.$executeRaw`
+              UPDATE "Stock"
+              SET "quantityBottles" = "quantityBottles" + ${totalBottlesAdded},
+                  "quantityCrates" = "quantityCrates" + ${crateCount ?? 0}
+              WHERE "productId" = ${productId}`;
+
+        if (affected === 0) {
           throw new NotFoundError(`No stock record for product ${productId}`);
-        }
-
-        const newBottles = stock.quantityBottles + totalBottlesAdded;
-        const newCrates = crateSize > 0
-          ? Math.floor(newBottles / crateSize)
-          : stock.quantityCrates + (crateCount ?? 0);
-
-        // Guard on the bottle count we read so a concurrent update cannot
-        // silently lose this delivery (retryable error instead of drift).
-        const stockUpdate = await tx.stock.updateMany({
-          where: { productId, quantityBottles: stock.quantityBottles },
-          data: {
-            quantityBottles: newBottles,
-            quantityCrates: newCrates,
-          },
-        });
-        if (stockUpdate.count === 0) {
-          throw new ValidationError('Stock was modified concurrently, please retry the delivery');
         }
 
         const updatedStock = await tx.stock.findUnique({ where: { productId } });

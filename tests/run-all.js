@@ -15,19 +15,25 @@ const SUITES = [
   'StockService.test.js',
   'SaleService.test.js',
   'ReportService.test.js',
+  'ReportTimezone.test.js',
   'Authorization.test.js',
   'Stage8Api.test.js',
   'Stage9Security.test.js',
+  'StockConcurrency.test.js',
   'Regression.test.js',
 ];
 
 // Markers that indicate a real failure in suite output.
 // "❌ FAIL" is printed by the service suites on assertion failure;
-// "Total: N passed, M failed" with M > 0 comes from the API suites.
+// "Total: N passed, M failed" with M > 0 comes from the API suites;
+// "PASS (verified in service tests)" is the removed Stage9Security
+// placeholder — if it ever reappears in output, the suite is failing its
+// duty to assert, so treat it as a failure.
 const FAILURE_PATTERNS = [
   /❌/,
   /Total:\s*\d+\s*passed,\s*[1-9]\d*\s*failed/,
   /Traceback|UnhandledPromiseRejection/,
+  /PASS \(verified in service tests\)/,
 ];
 
 let failedSuites = [];
@@ -47,11 +53,17 @@ for (const suite of SUITES) {
   const output = `${result.stdout || ''}\n${result.stderr || ''}`;
   process.stdout.write(output);
 
-  const exitBad = result.status !== 0;
+  // A child that failed to spawn, was killed by the timeout, or exited
+  // non-zero is a failure. result.status is null on timeout/spawn error.
+  const spawnBad = !!result.error || result.status === null;
+  const exitBad = spawnBad || result.status !== 0;
   const outputBad = FAILURE_PATTERNS.some((p) => p.test(output));
 
   if (exitBad || outputBad) {
-    console.error(`\n>>> SUITE FAILED: ${suite} (exit=${result.status}, failureMarkers=${outputBad})`);
+    const reason = spawnBad
+      ? `spawn/timeout error: ${result.error ? result.error.message : 'killed by timeout'}`
+      : `exit=${result.status}`;
+    console.error(`\n>>> SUITE FAILED: ${suite} (${reason}, failureMarkers=${outputBad})`);
     failedSuites.push(suite);
   } else {
     console.log(`\n>>> Suite passed: ${suite}`);

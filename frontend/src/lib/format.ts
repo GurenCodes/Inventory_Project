@@ -7,6 +7,27 @@ export function formatCurrency(amount: number | string): string {
   }).format(Number(amount));
 }
 
+// Business calendar: the shop operates in Yaoundé, Cameroon
+// (IANA zone Africa/Douala, UTC+1). Report dates are business-calendar
+// dates, so "today" and date validation must use this zone — not the
+// browser's zone and not the UTC calendar.
+export const BUSINESS_TZ = 'Africa/Douala';
+
+export function businessToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+export function businessDaysAgo(days: number): string {
+  const [y, m, d] = businessToday().split('-').map(Number);
+  const shifted = new Date(Date.UTC(y, m - 1, d - days));
+  return shifted.toISOString().slice(0, 10);
+}
+
 export function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
     month: 'short',
@@ -17,8 +38,15 @@ export function formatDate(dateString: string): string {
   });
 }
 
+// Format a DailyReport.reportDate (stored as UTC midnight of the business
+// calendar date). Format the ISO calendar-date portion directly — parsing
+// it through the browser's timezone would shift the visible day for any
+// user west of UTC.
 export function formatReportDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
+  const isoDate = dateString.slice(0, 10);
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
     weekday: 'short',
     month: 'short',
     day: 'numeric',

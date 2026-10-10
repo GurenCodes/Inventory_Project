@@ -222,6 +222,79 @@ async function main() {
   }
 
   // ============================================================
+  console.log('\n--- 8. Auth hardening: dev cookie, logout clearing, expired token ---');
+  try {
+    // Dev-mode login sets SameSite=Strict (production is SameSite=None; Secure —
+    // covered in section 7). Use a temp user, never a seeded account.
+    const bcrypt2 = require('bcrypt');
+    const authEmail = `${PREFIX.toLowerCase()}auth@regression.test`;
+    const authHash = await bcrypt2.hash('authpass123', 4);
+    const authUser = await prisma.user.create({
+      data: { fullName: 'Auth Hardening', email: authEmail, passwordHash: authHash, role: 'MANAGER' },
+    });
+
+    const loginRes = await supertest(app).post('/auth/login').send({ email: authEmail, password: 'authpass123' });
+    assert(loginRes.status === 200, `dev login -> 200 (got ${loginRes.status})`);
+    const devCookie = (loginRes.headers['set-cookie'] || []).join('; ');
+    assert(/HttpOnly/i.test(devCookie), 'dev cookie is HttpOnly');
+    assert(/SameSite=Strict/i.test(devCookie), `dev cookie SameSite=Strict (got ${devCookie})`);
+    const issuedToken = loginRes.body && loginRes.body.token;
+    assert(typeof issuedToken === 'string', 'login body includes token (retained bearer-fallback contract)');
+
+    // Cookie auth works end-to-end via /auth/me (Supertest level).
+    const meCookie = await supertest(app).get('/auth/me').set('Cookie', [`token=${issuedToken}`]);
+    assert(meCookie.status === 200 && meCookie.body.id === authUser.id, 'cookie restores session via /auth/me');
+
+    // Logout clears the cookie with matching attributes.
+    const logoutRes = await supertest(app).post('/auth/logout');
+    assert(logoutRes.status === 200, `logout -> 200 (got ${logoutRes.status})`);
+    const cleared = (logoutRes.headers['set-cookie'] || []).join('; ');
+    assert(/token=;/i.test(cleared) || /token=;|token=($|;|,)/i.test(cleared) || /Expires=Thu, 01 Jan 1970/i.test(cleared) || /Max-Age=0/i.test(cleared),
+      `logout Set-Cookie clears token (got ${cleared})`);
+    assert(/HttpOnly/i.test(cleared) && /Path=\//i.test(cleared), 'clearing cookie matches HttpOnly + Path=/');
+
+    // Expired credentials: a JWT signed with the right secret but already
+    // expired must be rejected with 401 (not 500, not 200).
+    const jwt2 = require('jsonwebtoken');
+    const expired = jwt2.sign({ userId: authUser.id, role: 'MANAGER' }, JWT_SECRET, { expiresIn: -10 });
+    const expiredRes = await supertest(app).get('/auth/me').set('Authorization', `Bearer ${expired}`);
+    assert(expiredRes.status === 401, `expired token -> 401 (got ${expiredRes.status})`);
+
+    // Role-based authorization remains intact (MANAGER cannot create users).
+    const mgrToken = jwt2.sign({ userId: authUser.id, role: 'MANAGER' }, JWT_SECRET, { expiresIn: '5m' });
+    const forbidden = await supertest(app)
+      .post('/users')
+      .set('Authorization', `Bearer ${mgrToken}`)
+      .send({ fullName: 'Nope', email: `${PREFIX.toLowerCase()}forbidden@regression.test`, password: 'secret123', role: 'MANAGER' });
+    assert(forbidden.status === 403, `MANAGER create-user -> 403 (got ${forbidden.status})`);
+
+    await prisma.user.delete({ where: { id: authUser.id } });
+  } catch (e) {
+    assert(false, `auth hardening section threw: ${e.message}`);
+  }
+
+  // ============================================================
+  console.log('\n--- 9. Frontend auth persistence (static source check) ---');
+  try {
+    // Static check (not a browser test): the auth store must never write
+    // tokens to localStorage, and must not persist an auth flag that could
+    // outlive the HttpOnly cookie.
+    const authStoreSrc = fs.readFileSync(
+      path.join(__dirname, '..', 'frontend', 'src', 'store', 'authStore.ts'), 'utf8'
+    );
+    assert(!/localStorage\.(getItem|setItem|removeItem)/.test(authStoreSrc), 'authStore.ts never calls localStorage methods');
+    assert(!/partialize[\s\S]*?token:/.test(authStoreSrc), 'partialize does not persist a token');
+    assert(!/partialize[\s\S]*?isAuthenticated:/.test(authStoreSrc), 'partialize does not persist isAuthenticated');
+    const apiSrc = fs.readFileSync(
+      path.join(__dirname, '..', 'frontend', 'src', 'services', 'api.ts'), 'utf8'
+    );
+    assert(apiSrc.includes('withCredentials: true'), 'axios client sends credentials');
+    assert(apiSrc.includes('clearSession'), '401 responses reset the local session');
+  } catch (e) {
+    assert(false, `frontend persistence check threw: ${e.message}`);
+  }
+
+  // ============================================================
   console.log('\n========== Regression Summary ==========');
   console.log(`Passed: ${passed}, Failed: ${failed}`);
   await prisma.$disconnect();

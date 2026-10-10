@@ -3,11 +3,21 @@ const dailyReportRepository = require('../Repository/Report');
 const saleRepository = require('../Repository/Sale');
 const userRepository = require('../../UserManagement/Repository/UserRepository');
 const { ValidationError, NotFoundError } = require('../../errors');
+const {
+  businessDayBounds,
+  todayBusinessDate,
+} = require('../../lib/businessTime');
 
 class ReportService {
-  // Pulls every completed sale for the given date, sums the totals,
+  // Pulls every completed sale for the given BUSINESS day, sums the totals,
   // and saves that as a DailyReport row.
-  // All date boundaries use UTC to be consistent regardless of server timezone.
+  //
+  // Business calendar (2026-10): the shop operates in Yaoundé, Cameroon —
+  // IANA zone Africa/Douala (UTC+1). A date like "2026-10-10" means the
+  // Douala calendar day, queried as the half-open UTC interval
+  // [start of local midnight, start of next local midnight). The report's
+  // reportDate is still stored at UTC midnight of the calendar date, which
+  // preserves the unique constraint and existing rows.
   async generateDailyReport({ date, generatedById }) {
     if (!date) {
       throw new ValidationError('Report date is required');
@@ -22,31 +32,20 @@ class ReportService {
       throw new NotFoundError(`User ${generatedById} does not exist`);
     }
 
-    const reportDate = new Date(date);
-    if (isNaN(reportDate.getTime())) {
+    const bounds = businessDayBounds(date);
+    if (!bounds) {
       throw new ValidationError('Invalid date provided');
     }
 
-    // Prevent generating reports for future dates.
-    // Compare calendar dates (YYYY-MM-DD) in UTC to avoid timezone issues.
-    // Date strings like "2026-10-06" parse as UTC midnight, so we extract
-    // the UTC date portion for both dates and compare as strings.
-    const reportDateUTC = reportDate.toISOString().split('T')[0]; // "YYYY-MM-DD" in UTC
-    const todayUTC = new Date().toISOString().split('T')[0];       // "YYYY-MM-DD" in UTC
-    if (reportDateUTC > todayUTC) {
+    // Prevent generating reports for future dates, using the BUSINESS
+    // calendar (Africa/Douala), not the server's or UTC calendar.
+    const businessDate = `${bounds.year}-${String(bounds.month).padStart(2, '0')}-${String(bounds.day).padStart(2, '0')}`;
+    if (businessDate > todayBusinessDate()) {
       throw new ValidationError('Cannot generate report for a future date');
     }
 
-    // Use UTC for all date boundaries to be consistent regardless of server timezone.
-    // reportDate at UTC midnight
-    const startOfDay = new Date(reportDate);
-    startOfDay.setUTCHours(0, 0, 0, 0);
-
-    // End of day in UTC
-    const endOfDay = new Date(reportDate);
-    endOfDay.setUTCHours(23, 59, 59, 999);
-
-    const sales = await saleRepository.findByDateRange(startOfDay, endOfDay);
+    // Half-open interval: start inclusive, next-day start exclusive.
+    const sales = await saleRepository.findByDateRange(bounds.start, bounds.end);
     const completedSales = sales.filter((s) => s.status === 'completed');
 
     const totalSalesAmount = completedSales.reduce(
@@ -54,25 +53,21 @@ class ReportService {
       0
     );
 
-    // Store reportDate at UTC midnight (not local midnight)
-    // This ensures the unique constraint works correctly regardless of server timezone.
-    const reportDateAtMidnight = new Date(reportDate);
-    reportDateAtMidnight.setUTCHours(0, 0, 0, 0);
-
     return dailyReportRepository.create({
-      reportDate: reportDateAtMidnight,
+      reportDate: bounds.storageDate,
       generatedById,
       totalSalesAmount,
     });
   }
 
-  // Returns null if no report exists for the given date
+  // Returns null if no report exists for the given date.
+  // The date is interpreted as a business-calendar date (Africa/Douala)
+  // and mapped to the stored UTC-midnight reportDate.
   async getReportByDate(date) {
     if (!date) return null;
-    const day = new Date(date);
-    if (isNaN(day.getTime())) return null;
-    day.setUTCHours(0, 0, 0, 0);
-    return dailyReportRepository.findByDate(day);
+    const bounds = businessDayBounds(date);
+    if (!bounds) return null;
+    return dailyReportRepository.findByDate(bounds.storageDate);
   }
 
   async listReports(startDate, endDate) {

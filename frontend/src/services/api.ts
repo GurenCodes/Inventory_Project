@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { getStoredToken } from '../store/authStore';
+import { getStoredToken, useAuthStore } from '../store/authStore';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
@@ -29,11 +29,17 @@ class ApiClient {
       return config;
     });
 
-    // Response interceptor for error handling - just pass through errors
-    // The ProtectedRoute component will handle 401 redirects
+    // Response interceptor: pass errors through, but on 401 reset the
+    // local session so an expired/invalid credential never leaves the UI
+    // showing an authenticated state. (Login failures don't go through
+    // this client — authStore uses fetch — so a 401 here always means a
+    // previously-authenticated request was rejected.)
     this.client.interceptors.response.use(
       (response) => response,
       (error: AxiosError) => {
+        if (error.response?.status === 401) {
+          useAuthStore.getState().clearSession();
+        }
         return Promise.reject(error);
       }
     );
