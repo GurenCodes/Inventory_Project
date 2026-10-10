@@ -5,7 +5,6 @@ node_modules
 # Server logs (managed externally, never committed)
 server.out.log
 server.err.log
-
-/generated/prisma
+opencode_log.txt
 
 /generated/prisma

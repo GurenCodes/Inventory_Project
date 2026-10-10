@@ -30,20 +30,6 @@ export default function ProductForm() {
   const productId = id ? Number(id) : null;
   const isAdmin = user?.role === 'ADMIN';
 
-  if (!isAdmin) {
-    return (
-      <div className="card text-center py-12">
-        <AlertTriangleIcon className="w-12 h-12 text-danger mx-auto mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Access Denied</h2>
-        <p className="text-gray-500 mb-4">Only administrators can create or edit products.</p>
-        <Link to="/products" className="btn-secondary">
-          <ArrowLeftIcon className="w-4 h-4 mr-2" />
-          Back to Products
-        </Link>
-      </div>
-    );
-  }
-
   const { data: product, isLoading: loadingProduct, isError: productError } = useProduct(productId!);
 
   const createMutation = useCreateProduct();
@@ -83,6 +69,20 @@ export default function ProductForm() {
       });
     }
   }, [isEdit, product, reset]);
+
+  if (!isAdmin) {
+    return (
+      <div className="card text-center py-12">
+        <AlertTriangleIcon className="w-12 h-12 text-danger mx-auto mb-4" />
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Access Denied</h2>
+        <p className="text-gray-500 mb-4">Only administrators can create or edit products.</p>
+        <Link to="/products" className="btn-secondary">
+          <ArrowLeftIcon className="w-4 h-4 mr-2" />
+          Back to Products
+        </Link>
+      </div>
+    );
+  }
 
   if (isEdit && loadingProduct) {
     return (
