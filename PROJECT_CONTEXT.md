@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-10 (corrective session: stock concurrency, security-test integrity, auth hardening, business timezone). State: Stage 12 COMPLETE + corrective fixes shipped; `npm test` **all 11 suites** green (recorded run 2026-10-10, post-fix); frontend lint + build green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy — see §17 and the §2 outstanding-work checklist). **Git: implementation commit `5a894bf` (+ this docs commit) is awaiting owner-confirmed push; previous HEAD `a03082a` was in sync with `origin/main`. Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K11, K12, K15, K16, K18).
+Last updated: 2026-10-10 (corrective session: stock concurrency, security-test integrity, auth hardening, business timezone). State: Stage 12 COMPLETE + corrective fixes shipped; `npm test` **all 11 suites** green (recorded run 2026-10-10, post-fix); frontend lint + build green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy — see §17 and the §2 outstanding-work checklist). **Git: implementation commit `5a894bf` + its docs commit `43870cf` were pushed to `origin/main` on 2026-10-10 with owner confirmation (verified: `a03082a..43870cf`, local == remote, clean tree). Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K11, K12, K15, K16, K18).
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -36,7 +36,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 12: frontend development | **COMPLETE — build green, all 12 pages implemented** (frontend not deployed) |
 | Stage 13: frontend deployment (Vercel) | **NOT STARTED** |
 | 2026-10 audit: backend fixes + frontend completion | **VERIFIED — COMPLETE** |
-| 2026-10-10 corrective session: stock atomicity, security tests, auth hardening, Douala timezone | **VERIFIED — COMPLETE** (commit `5a894bf`; all 11 suites green; push pending owner confirmation) |
+| 2026-10-10 corrective session: stock atomicity, security tests, auth hardening, Douala timezone | **VERIFIED — COMPLETE** (commit `5a894bf`; all 11 suites green; pushed 2026-10-10 with owner confirmation) |
 
 ### Verified stack (from package.json files, 2026-10-10)
 
@@ -86,7 +86,7 @@ This audit verified claims in this document against the real code and tests. Fin
 Known still-open items are tracked in section 12 (K5, K10–K12, K15, K16, K18; **K17 resolved 2026-10-10**) and summarized in the §2 outstanding-work checklist above.
 - **2026-10-10 second consistency audit (docs-only, this commit):** verified the document against the repo after the push; corrected the stale "ahead-by-7 / NOT pushed" Git claims (all eight commits are on `origin/main`, HEAD `cefc4ef`), fixed the broken Stage 9/Stage 10 roadmap numbering, removed duplicate route rows in §16.2, added the authoritative outstanding-work checklist in §2 (superseding §18/§18b), and aligned the header, §17, §19 and FINAL VERDICT with the post-push state. No code changes.
 
-Git (2026-10-10, after this session's implementation commit): branch `main`; HEAD `5a894bf` (fix: atomic stock crate-sync, real security assertions, auth hardening, Douala business-timezone reports) + this docs commit — **both pending owner-confirmed push** (§10). The previous HEAD `a03082a` was verified in sync with `origin/main` before this session. Treat any "clean tree" claim in this file as historical unless re-verified with `git status`.
+Git (2026-10-10, after the push): branch `main`; HEAD `5a894bf` (fix: atomic stock crate-sync, real security assertions, auth hardening, Douala business-timezone reports) + docs commit `43870cf` — **both pushed to `origin/main` on 2026-10-10 with owner confirmation** (§10; verified `a03082a..43870cf`, local == remote, clean tree at push time). This follow-up docs commit records the verified push. Treat any "clean tree" claim in this file as historical unless re-verified with `git status`.
 
 - **2026-10-10 corrective session (commit `5a894bf`):** four targeted fixes, each with new focused tests — (1) **stock concurrency**: `incrementBottlesAndCrates`, `conditionalDecrementWithCrates` and `receiveBatchOrder` now update bottles AND crates in ONE parameterized SQL statement (`UPDATE "Stock" … FLOOR((…)::numeric / crateSize)`), eliminating the guard window where a successful return could carry a stale crate count; no retries needed (single-statement atomicity); new `StockConcurrency` suite 41/41. (2) **security-test integrity**: `Stage9Security.test.js` rewritten — all "PASS (verified in service tests)" placeholders replaced with real in-suite assertions (K1 price spoofing, K2 concurrent oversell, K3 cancel-restock, K7 invariant), shared-Prisma check now scans every repo+service file, temp-user login (no seeded credentials), proper exit codes; `run-all.js` treats the old placeholder string as a failure marker and flags spawn/timeout failures. (3) **auth hardening**: bearer fallback **deliberately retained** (frontend not deployed; third-party-cookie viability unverifiable from the repo — owner decision listed in the checklist); `authStore` no longer persists `isAuthenticated` (only `user` display cache); axios 401 responses now `clearSession()`; Regression sections 8–9 cover dev-cookie attrs, logout clearing, expired-token 401, role intactness, and static no-persistence checks. (4) **business timezone**: new `lib/businessTime.js` (Intl-only, no new dependency) implements the `Africa/Douala` calendar — daily report generation and queries use the half-open Douala-day interval, future-date validation uses the business calendar, `reportDate` storage stays at UTC midnight of the calendar date (unique constraint + existing rows preserved); frontend `businessToday()`/`businessDaysAgo()` replace UTC-based date defaults and `formatReportDate` no longer shifts days for non-UTC browsers; new `ReportTimezone` suite 18/18. Full verification: `npm test` → all 11 suites passed; frontend lint 0 errors; build green.
 
@@ -95,7 +95,7 @@ Git (2026-10-10, after this session's implementation commit): branch `main`; HEA
 > This is the single authoritative list of what remains. Older checklists (§14 historical, §18, §18b, §16.5/16.8, FINAL VERDICT) are superseded by this list; §12 tracks the same items with evidence and suggested fixes. Items completed in the 2026-10-10 corrective session (stock atomicity, security-test integrity, auth store hardening, Douala business timezone / old K10) are removed.
 
 **Git:**
-- [ ] Push the two pending commits (`5a894bf` + this docs commit) to `origin/main` after owner confirmation (§10).
+- [x] Push the corrective-session commits (`5a894bf` + docs `43870cf`) to `origin/main` — **done 2026-10-10, owner-confirmed and verified.**
 
 **Deployment (Stage 13, §17):**
 - [ ] Import the repo in Vercel (Framework: Vite, Root Directory: `frontend`, Build Command: `npm run build`, Output: `dist`).
@@ -1308,7 +1308,7 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 **K17 RESOLVED (2026-10-10 follow-up):** axios + autoprefixer now declared in `frontend/package.json` with updated `frontend/package-lock.json`; masking root copies removed; isolated clean-room `npm ci` + build verified; oxlint clean (0 errors) after fixing conditional hooks in `ProductForm.tsx`; backend suite re-verified (all 9 green).
 
-**Git status (2026-10-10, this docs commit):** the corrective-session commit `5a894bf` + this documentation commit are **pending owner-confirmed push** — do not treat them as pushed until `git status` / `git log origin/main` confirm it. (Earlier that day, all eight prior commits through `a03082a` were pushed with owner confirmation.)
+**Git status (2026-10-10, after push):** the corrective-session commit `5a894bf` + docs commit `43870cf` were **pushed to `origin/main` on 2026-10-10 with the owner's explicit confirmation**; push verified (`a03082a..43870cf`, local == remote, clean tree). This commit records that verified push and is itself pending owner-confirmed push. (Earlier that day, all eight prior commits through `a03082a` were also pushed with owner confirmation.)
 
 **Second consistency audit (2026-10-10, docs-only):** stale Git claims, roadmap numbering, duplicate §16.2 rows, and checklist fragmentation corrected; authoritative outstanding-work checklist added in §2.
 
