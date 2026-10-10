@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-08. State: Stage 11 VERIFIED — COMPLETE — 22 protected routes enforced, 48 Stage 8 API tests, 15 Stage 9 security controls, 260 total tests passing, production deployment verified.
+Last updated: 2026-10-10. State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (Regression 29/29); frontend `npm run build` green. Next: Stage 13 (Vercel deploy). See section 2 for the 2026-10-10 audit summary and section 12 for open issues (K5, K10–K12, K15, K16).
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -31,9 +31,26 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 9: security hardening | **VERIFIED — COMPLETE** |
 | Stage 10: deployment preparation | **VERIFIED — COMPLETE** |
 | Stage 11: production deployment & verification | **VERIFIED — COMPLETE** |
-| Stage 12: frontend development | **PLANNED** |
+| Stage 12: frontend development | **COMPLETE — build green, all pages implemented** |
+| 2026-10 audit: backend fixes + frontend completion | **VERIFIED — COMPLETE** |
 
-Git: Working directory clean. Untracked: `opencode_log.txt` (ignorable), `tests/test-db-latency.js`, `tests/test-jwt-expiration.js`.
+### Audit of 2026-10-10 (what was actually wrong and what was fixed)
+
+This audit verified claims in this document against the real code and tests. Findings and fixes (commits `ec3bb1a`, `da2ab4e`, `af985a5`):
+
+- **PUT /products/:id with `reorderLevel` returned 500** (PrismaClientValidationError — the route passed `reorderLevel` to `updateProduct`, which rejects unknown fields). Fixed: the route applies reorder level via `stockService.adjustReorderLevel` and returns the product with its stock.
+- **Crate drift in `receiveBatchOrder`** (11 bottles + 1 crate + 2 bottles left `quantityCrates` at 1 instead of 2). Fixed: crates recalculated from total bottles inside the interactive `$transaction`, with an optimistic `updateMany` guard on `quantityBottles` so concurrent deliveries cannot silently overwrite each other.
+- **Frontend build was broken** (unclosed JSX in `Login.tsx`) and the working-tree had never compiled. Fixed; `npm run build` in `frontend/` now passes (`tsc -b && vite build`).
+- **Placeholder pages replaced**: Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users were "Coming Soon" divs; all are now fully implemented against the real API (plus `useStock`/`useSales`/`useReports`/`useUsers` hooks and `lib/format.ts`).
+- **Session restore now real**: `initializeAuth` calls `GET /auth/me` instead of assuming a hardcoded token is a valid session; the login token is kept per-tab (sessionStorage) only as an Authorization-header fallback for blocked third-party cookies; never localStorage.
+- **Login route moved outside the authenticated layout**; broken `/dashboard` nav link fixed to `/`; demo credentials shown only in dev builds; last-character password-peek removed.
+- **`GET /reports` range query now includes `generatedBy`** for display.
+- **New `npm test`**: `tests/run-all.js` spawns all 9 suites and fails on any `❌` or non-zero exit — needed because several older suites print ✅/❌ but historically exited 0 regardless, and `Stage9Security.test.js` still contains hardcoded PASS lines. Treat pre-existing suite output with skepticism; the Regression suite (29 assertions, real HTTP + DB checks, non-zero exit on failure) is the trustworthy one.
+- Full verification: `npm test` → **all 9 suites passed** (including Regression 29/29); frontend production build green.
+
+Known still-open items are tracked in section 12 (K5, K10, K11, K12 and the test-harness weaknesses).
+
+Git: working directory clean after the audit commits. Untracked: `opencode_log.txt` (ignorable), `tests/test-db-latency.js`, `tests/test-jwt-expiration.js`.
 
 ## 3. Stack and environment
 
@@ -860,6 +877,8 @@ Working tree clean (except opencode_log.txt ignored)
 
 ## 16. Stage 12 — Frontend Development Plan
 
+> **Status (2026-10-10): IMPLEMENTED.** This section is the original plan, kept for reference. The shipped frontend lives in `frontend/` (Vite + React 19 + TS + Tailwind v4, react-query + Zustand). Stack notes that differ from the plan: React 19 (not 18), React Router v7 (not v6), Tailwind v4 (not v3), `VITE_API_BASE_URL` env var for the API origin (dev default `http://localhost:3000`, prod default the Render URL). All planned pages/routes are built; auth uses HttpOnly cookies with a per-tab sessionStorage token fallback.
+
 ### 16.1 Recommended Frontend Stack
 
 | Component | Choice | Rationale |
@@ -1181,36 +1200,36 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 ## 18. Next Steps
 
-1. **Implement cookie-based auth** (backend changes listed in §16.4)
-2. **Initialize frontend repo** with Vite + React + TypeScript + Tailwind
-3. **Implement Phase 0-2** (Auth + Layout + Dashboard)
-4. **Iterate through phases** per §16.7
-5. **Deploy to Vercel** → update `ALLOWED_ORIGINS` → verify CORS + cookies
+1. ~~Implement cookie-based auth~~ **DONE** (backend §16.4 + frontend `authStore`/`api.ts`; prod cookies `SameSite=None; Secure`)
+2. ~~Initialize frontend repo~~ **DONE** (Vite + React 19 + TypeScript + Tailwind v4 in `frontend/`)
+3. ~~Implement Auth + Layout + Dashboard + all feature pages~~ **DONE** (all 12 pages implemented; `npm run build` green)
+4. **Deploy to Vercel (Stage 13)** → set `VITE_API_BASE_URL` → update backend `ALLOWED_ORIGINS` → verify CORS + cookies cross-origin
+5. Optional hardening: K5 (separate test DB), K10 (business timezone), K15 (Jest/supertest migration), K16 (code splitting)
 
 ---
 
 ## FINAL VERDICT
 
-**STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12 (Frontend Development).
+**STAGE 12 COMPLETE — backend + frontend verified (2026-10-10).**  
+`npm test` → all 9 suites passed (Regression 29/29). Frontend `npm run build` green.
 
-**Render service has NOT been created or deployed during this step.**  
-The service was already deployed; this step completed verification and fixed the flaky test.
-
-**Next Step:** Begin Stage 12 — Frontend Development.
+**Remaining work:** Stage 13 (Vercel deployment) and the open known issues in section 12 (K5, K10, K11, K12, K15, K16).
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
 - Never use local-time methods (`setHours`, `setDate`) on dates. Use `setUTCHours`, `setUTCDate`, or ISO strings.
 - Existing reports were originally stored at local midnight (23:00Z) and were shifted +1h to UTC midnight on 2026-10-06. `seed.js` now uses UTC.
 - The shop is in WAT (UTC+1): sales between 00:00 and 00:59 local time count toward the previous UTC day, and closing out the new local day during that hour is rejected. Accepted for now (see K10).
-- Prisma `Decimal` values serialize to JSON as **strings**. The frontend must parse them.
+- Prisma `Decimal` values serialize to JSON as **strings**. The frontend must parse them (`lib/format.ts` handles this via `Number()`).
 
 ## 9. Testing
 
-- Files in `tests/` (Product, Stock, Sale, Report, Auth/bcrypt). Run each with `node tests/<Name>.test.js`. No `npm test` script and no test runner yet.
+- **`npm test`** now runs everything: `tests/run-all.js` spawns each suite as a child process, watches for `❌` / `Total: N passed, M failed` patterns and non-zero exits, and prints a final `RESULT:` line. It fails (non-zero) if any suite fails.
+- Individual suites: `node tests/<Name>.test.js` (Product, Stock, Sale, Report, Auth, Stage7Authorization, Stage8Api, Stage9Security, Regression).
+- **Trust ranking (from the 2026-10 audit):** `Regression.test.js` (29 assertions, real HTTP + DB checks, exits non-zero on failure) is the most trustworthy. `Stage7Authorization` and `Stage8Api` do real requests. Several older suites (`ProductService`, `StockService`, etc.) print ✅/❌ but historically exited 0 regardless of failures — read their output, don't trust the exit code. `Stage9Security.test.js` contains hardcoded PASS lines (its K8 check was broken; a static-file check was added in Regression instead).
 - Output format per function: valid input, missing fields, invalid values, business rules, DB state verified by direct query, transaction integrity. Each marked PASS / FAIL / N/A.
 - Conventions: `TEST_` prefix for test data; clean up in `try/finally`; each test uses its own non-colliding date (report tests use 2026-07-0x); assert the **specific** expected error message. A test that only checks "something threw" once passed because of a unique-constraint error, which is a false pass.
 - Tests run against the live shared Aiven database (see K5).
-- Last known: ReportService suite 17/17 pass, 0 leftover rows. StockService all pass. AuthService/UserService all pass. ProductService all pass (fixed zeroCrateSize validation per K12, fixed Decimal comparisons). SaleService passes when database is reachable (intermittent Aiven connectivity affects test runs; not a code issue).
+- Last known (2026-10-10): `npm test` → all 9 suites passed, Regression 29/29. Service suites use short passwords (`pass`, `newpass`) deliberately — password min-length enforcement in the UI is 8 chars, but the backend accepts any non-empty password, so these still pass.
 - Seed logins (DEV ONLY, remove before go-live): `staff1`…`staff10@floramagg.com`, password `password_N`. Odd N = MANAGER, even N = ADMIN. IDs change on every reseed.
 
 ## 10. Working with the AI assistant (opencode)
@@ -1241,7 +1260,7 @@ Preferences of the project owner: plain-language explanation before code, step-b
 | K1 | HIGH | ~~`completeSale` trusts the client-supplied `unitPrice`, so a user can sell at any price.~~ **RESOLVED in Stage 9** | ~~Read price from `Product.unitPrice` server-side; allow overrides for Admins only.~~ |
 | K2 | HIGH | ~~Stock check happens outside the transaction, so two simultaneous sales can oversell and push stock negative.~~ **RESOLVED in Stage 9** | ~~Atomic conditional decrement inside the transaction (`updateMany where quantityBottles >= qty`, verify count).~~ |
 | K3 | HIGH | ~~`cancelSale` has unclear semantics: it works on completed sales without restocking, and can cancel an already-cancelled sale. `pending` is never created by the API.~~ **RESOLVED in Stage 9** | ~~Decide policy: cancel = restock, allowed only from `completed`, Admin-only.~~ |
-| K4 | HIGH | No role enforcement: any logged-in user can do anything. | Stage 7. |
+| K4 | HIGH | ~~No role enforcement: any logged-in user can do anything.~~ **RESOLVED in Stage 7** | ~~`requireRole` middleware on all protected routes; 56 authorization tests.~~ |
 | K5 | HIGH | Dev, tests and `seed.js` all hit the shared production-style Aiven DB; `seed.js` wipes every table. | Create a separate dev/test database; make seed refuse to run without a `--force` flag. |
 | K6 | MED | ~~Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware.~~ **RESOLVED in Stage 6** | ~~Stage 6: custom error classes + one error handler.~~ |
 | K7 | MED | ~~`quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles.~~ **RESOLVED in Stage 9** | ~~Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide.~~ |
@@ -1250,8 +1269,10 @@ Preferences of the project owner: plain-language explanation before code, step-b
 | K10 | MED | Shop day (UTC+1) vs UTC day offset of one hour. | A `BUSINESS_TZ` offset constant for day boundaries, or `@db.Date` for reportDate. |
 | K11 | LOW | JWT role stays stale up to 8h after a role change; no logout or refresh. | Short expiry + refresh, or re-check role from DB on sensitive routes. |
 | K12 | LOW | `crateSize` of 0 is allowed, so crate conversion silently yields 0 bottles. | Require positive integer or null. |
-| K13 | LOW | `receiveBatchOrder` and `generateDailyReport` don't verify the user exists, so a raw foreign-key error can surface. | Check the user or map Prisma P2003 to a clear error. |
-| K14 | LOW | No `npm test`, no runner. | Add Jest + supertest (`server.js` already exports `app`). |
+| K13 | LOW | ~~`receiveBatchOrder` and `generateDailyReport` don't verify the user exists, so a raw foreign-key error can surface.~~ **RESOLVED** | ~~Both services now check `userRepository.findById` and throw a clear NotFoundError.~~ |
+| K14 | LOW | ~~No `npm test`, no runner.~~ **PARTIALLY RESOLVED (2026-10)** | `npm test` runs `tests/run-all.js` (9 suites, fails on any failure). Not Jest/supertest yet; older suites still have weak exit codes — see section 9. |
+| K15 | MED | Test harnesses can false-pass: several suites print ✅/❌ but exit 0 regardless; `Stage9Security.test.js` has hardcoded PASS lines. | Migrate suites to Jest/supertest with real assertions and exit codes; until then rely on `Regression.test.js` + read suite output. |
+| K16 | LOW | Frontend production build is a single ~610 kB chunk (no code splitting). | Route-level `React.lazy` + dynamic import; optional. |
 
 ## 13. Roadmap
 
@@ -1261,12 +1282,14 @@ Preferences of the project owner: plain-language explanation before code, step-b
 4. **Stage 9 — hardening:** **VERIFIED — COMPLETE.** K1 (server-side pricing), K2 (atomic stock decrement), K3 (cancellation restocks), K7 (crate/bottle consistency), K8 (shared PrismaClient), plus `helmet`, `cors`, login rate limiting, body size limit, request validation. 15 security controls verified. 260 total tests pass. K1/K2/K3/K7/K8 resolved.
 4. **Stage 10 — deployment preparation:** **VERIFIED — COMPLETE.** Build/start commands verified, health check confirmed, environment variables documented, Render configuration documented, 260 total tests pass. All K1–K8 resolved.
 5. **Stage 11 — production deployment & verification:** **VERIFIED — COMPLETE.** Production database migrations applied via Render Shell, Render Web Service Live, health check verified, 260 total tests pass, all security controls active.
-6. **Stage 12 — frontend development:** **PLANNED**. See Section 16 for detailed plan.
-7. **Stage 13 — frontend deployment:** Vercel deployment, CI/CD pipeline.
+6. **Stage 12 — frontend development:** **COMPLETE (2026-10-10).** All planned pages implemented (Dashboard, Products, ProductDetail, ProductForm, Stock, StockReceive, Sales, SaleDetail, SaleNew, Reports, Users, Login) with react-query hooks, role-aware routing, and a green production build (`npm run build` in `frontend/`). Backend contract fixes from the audit (reorderLevel 500, crate drift, `/auth/me`, sales include, prod cookie SameSite) shipped in `ec3bb1a`. See section 2 audit summary.
+7. **Stage 13 — frontend deployment:** Vercel deployment, CI/CD pipeline. **Not started** — the app is deploy-ready pending CORS/`VITE_API_BASE_URL` wiring per section 16.5.
 
 Ideas for later: weekly/monthly report views, profit margin from `costPerUnit`, expiry alerts via `findExpiringBefore`, low-stock notifications (email/WhatsApp), CSV/PDF report export, audit log, price history, barcode scanning, OpenAPI docs.
 
 ## 16. Stage 12 — Frontend Development Plan
+
+> **Status (2026-10-10): IMPLEMENTED.** This section is the original plan, kept for reference. The shipped frontend lives in `frontend/` (Vite + React 19 + TS + Tailwind v4, react-query + Zustand). Stack notes that differ from the plan: React 19 (not 18), React Router v7 (not v6), Tailwind v4 (not v3), `VITE_API_BASE_URL` env var for the API origin (dev default `http://localhost:3000`, prod default the Render URL). All planned pages/routes are built; auth uses HttpOnly cookies with a per-tab sessionStorage token fallback.
 
 ### 16.1 Recommended Frontend Stack
 
@@ -1635,22 +1658,19 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 ## 18. Next Steps
 
-1. **Implement cookie-based auth** (backend changes listed in §16.4)
-2. **Initialize frontend repo** with Vite + React + TypeScript + Tailwind
-3. **Implement Phase 0-2** (Auth + Layout + Dashboard)
-4. **Iterate through phases** per §16.7
-5. **Deploy to Vercel** → update `ALLOWED_ORIGINS` → verify CORS + cookies
+1. ~~Implement cookie-based auth~~ **DONE** (backend §16.4 + frontend `authStore`/`api.ts`; prod cookies `SameSite=None; Secure`)
+2. ~~Initialize frontend repo~~ **DONE** (Vite + React 19 + TypeScript + Tailwind v4 in `frontend/`)
+3. ~~Implement Auth + Layout + Dashboard + all feature pages~~ **DONE** (all 12 pages implemented; `npm run build` green)
+4. **Deploy to Vercel (Stage 13)** → set `VITE_API_BASE_URL` → update backend `ALLOWED_ORIGINS` → verify CORS + cookies cross-origin
+5. Optional hardening: K5 (separate test DB), K10 (business timezone), K15 (Jest/supertest migration), K16 (code splitting)
 
 ---
 
 ## FINAL VERDICT
 
-**STAGE 11 VERIFIED — COMPLETE** → Ready for Stage 12 (Frontend Development).
-
-**Render service has NOT been created or deployed during this step.**  
-The service was already deployed; this step completed verification and fixed the flaky test.
-
-**Next Step:** Begin Stage 12 — Frontend Development.
+**STAGE 12 COMPLETE — backend + frontend verified (2026-10-10).**  
+`npm test` → all 9 suites passed (Regression 29/29). Frontend `npm run build` green.  
+*(This section appears twice in the historical doc; content is identical.)*
 
 ## 14. Pre-deployment checklist
 
