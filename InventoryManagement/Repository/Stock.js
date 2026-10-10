@@ -52,7 +52,9 @@ class StockRepository {
     });
   }
 
-  // K7 fix: Increment bottles and recalculate crates based on crateSize
+  // K7 fix: Increment bottles and recalculate crates based on crateSize.
+  // Uses an atomic increment for bottles; crates are recalculated from the
+  // resulting bottle count so they never drift.
   async incrementBottlesAndCrates(productId, bottleDelta, crateSize, tx) {
     const client = this._getClient(tx);
 
@@ -64,20 +66,24 @@ class StockRepository {
       });
     }
 
-    // Read current stock, compute new values, update both
-    const stock = await client.stock.findUnique({ where: { productId } });
-    if (!stock) return null;
-
-    const newBottles = stock.quantityBottles + bottleDelta;
-    const newCrates = Math.floor(newBottles / crateSize);
-
-    return client.stock.update({
+    // Atomic increment of bottles first
+    const updated = await client.stock.update({
       where: { productId },
-      data: {
-        quantityBottles: newBottles,
-        quantityCrates: newCrates,
-      },
+      data: { quantityBottles: { increment: bottleDelta } },
     });
+
+    // Recalculate crates from the new bottle total (K7), guarded on the
+    // exact bottle count we computed from so concurrent updates cannot
+    // leave stale crates.
+    const newCrates = Math.floor(updated.quantityBottles / crateSize);
+    if (newCrates === updated.quantityCrates) {
+      return updated;
+    }
+    await client.stock.updateMany({
+      where: { productId, quantityBottles: updated.quantityBottles },
+      data: { quantityCrates: newCrates },
+    });
+    return client.stock.findUnique({ where: { productId } });
   }
 
   // Decrease bottle count AND update crates accordingly (K7 fix)
@@ -86,102 +92,43 @@ class StockRepository {
     return this.incrementBottlesAndCrates(productId, -bottleDelta, crateSize, tx);
   }
 
-  // K2 + K7 fix: Atomic conditional decrement with crate sync
-  // Only decrements if sufficient stock exists
-  // Returns count of updated rows (0 = insufficient stock)
-  // Also updates crates based on new bottle count
+  // K2 + K7 fix: Atomic conditional decrement with crate sync.
+  // Only decrements if sufficient stock exists (checked inside the UPDATE
+  // itself, so concurrent sales can never oversell).
+  // Returns count of updated rows (0 = insufficient stock).
+  // Crates are recalculated from the new bottle total (K7).
   async conditionalDecrementWithCrates(productId, bottleDelta, crateSize, tx) {
     const client = this._getClient(tx);
-
-    if (!crateSize || crateSize <= 0) {
-      // No crateSize, just do conditional decrement
-      const result = await client.stock.updateMany({
-        where: {
-          productId,
-          quantityBottles: { gte: bottleDelta },
-        },
-        data: { quantityBottles: { decrement: bottleDelta } },
-      });
-      return result.count;
-    }
-
-    // For crate sync, we need to read current stock, check if sufficient,
-    // then compute new values and update both
-    const stock = await client.stock.findUnique({ where: { productId } });
-    if (!stock) return 0;
-
-    if (stock.quantityBottles < bottleDelta) {
-      return 0; // Insufficient stock
-    }
-
-    const newBottles = stock.quantityBottles - bottleDelta;
-    const newCrates = Math.floor(newBottles / crateSize);
 
     const result = await client.stock.updateMany({
       where: {
         productId,
         quantityBottles: { gte: bottleDelta },
       },
-      data: {
-        quantityBottles: { decrement: bottleDelta },
-        quantityCrates: newCrates,
-      },
+      data: { quantityBottles: { decrement: bottleDelta } },
     });
 
-    // If updateMany didn't work (race condition), try update with exact match
     if (result.count === 0) {
-      // Double-check with exact match
-      const checkStock = await client.stock.findUnique({ where: { productId } });
-      if (checkStock && checkStock.quantityBottles >= bottleDelta) {
-        const newBottles2 = checkStock.quantityBottles - bottleDelta;
-        const newCrates2 = Math.floor(newBottles2 / crateSize);
-        const result2 = await client.stock.update({
-          where: { productId },
-          data: {
-            quantityBottles: newBottles2,
-            quantityCrates: newCrates2,
-          },
-        });
-        return result2 ? 1 : 0;
+      return 0; // Insufficient stock (or missing row)
+    }
+
+    // Sync crates with the new bottle count (K7). Only needed when the
+    // product tracks crate size. The where-clause guards on the exact bottle
+    // count we computed from, so a concurrent update cannot leave stale crates.
+    if (crateSize && crateSize > 0) {
+      const stock = await client.stock.findUnique({ where: { productId } });
+      if (stock) {
+        const newCrates = Math.floor(stock.quantityBottles / crateSize);
+        if (newCrates !== stock.quantityCrates) {
+          await client.stock.updateMany({
+            where: { productId, quantityBottles: stock.quantityBottles },
+            data: { quantityCrates: newCrates },
+          });
+        }
       }
-      return 0;
     }
 
     return result.count;
-  }
-
-  // K7 fix: Increment bottles and recalculate crates based on crateSize
-  async incrementBottlesAndCrates(productId, bottleDelta, crateSize, tx) {
-    const client = this._getClient(tx);
-
-    if (!crateSize || crateSize <= 0) {
-      // No crateSize defined, just update bottles
-      return client.stock.update({
-        where: { productId },
-        data: { quantityBottles: { increment: bottleDelta } },
-      });
-    }
-
-    // Read current stock, compute new values, update both
-    const stock = await client.stock.findUnique({ where: { productId } });
-    if (!stock) return null;
-
-    const newBottles = stock.quantityBottles + bottleDelta;
-    const newCrates = Math.floor(newBottles / crateSize);
-
-    return client.stock.update({
-      where: { productId },
-      data: {
-        quantityBottles: newBottles,
-        quantityCrates: newCrates,
-      },
-    });
-  }
-
-  // Decrease bottle count AND update crates accordingly (K7 fix)
-  async decrementBottlesAndCrates(productId, bottleDelta, crateSize, tx) {
-    // bottleDelta is positive amount to decrement
-    return this.incrementBottlesAndCrates(productId, -bottleDelta, crateSize, tx);
   }
 
   // Find products at or below their reorder level.

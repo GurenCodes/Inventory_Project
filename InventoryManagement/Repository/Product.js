@@ -4,9 +4,15 @@
 const prisma = require('../../lib/prisma');
 
 class ProductRepository {
-  async create(data) {
+  // Use provided client or default to shared prisma
+  _getClient(tx) {
+    return tx || prisma;
+  }
+
+  async create(data, tx) {
     // data = { name, category, unitPrice, crateSize }
-    return prisma.product.create({ data });
+    const client = this._getClient(tx);
+    return client.product.create({ data });
   }
 
   async findById(id) {
@@ -19,7 +25,11 @@ class ProductRepository {
     const where = {};
     if (category) where.category = category;
     if (onlyActive) where.isActive = true;
-    return prisma.product.findMany({ where });
+    return prisma.product.findMany({
+      where,
+      include: { stock: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async update(id, data) {

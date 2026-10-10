@@ -25,6 +25,9 @@ class UserService {
     if (!password || typeof password !== 'string' || password.length < 1) {
       throw new ValidationError('Password is required');
     }
+    if (role !== 'ADMIN' && role !== 'MANAGER') {
+      throw new ValidationError('Role must be ADMIN or MANAGER');
+    }
 
     const normalizedEmail = email.trim().toLowerCase();
     const existingUser = await userRepository.findByEmail(normalizedEmail);

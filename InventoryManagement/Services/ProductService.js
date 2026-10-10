@@ -1,4 +1,6 @@
 // InventoryManagement/Service/ProductService.js
+// Uses shared PrismaClient (K8 fix)
+const prisma = require('../../lib/prisma');
 const productRepository = require('../Repository/Product');
 const stockRepository = require('../Repository/Stock');
 const { ValidationError, NotFoundError } = require('../../errors');
@@ -28,48 +30,61 @@ class ProductService {
       }
     }
 
-    const product = await productRepository.create({
-      name: name.trim(),
-      category,
-      unitPrice,
-      crateSize,
+    // Create the Product and its Stock row atomically so a product can
+    // never exist without stock tracking.
+    const result = await prisma.$transaction(async (tx) => {
+      const product = await productRepository.create({
+        name: name.trim(),
+        category,
+        unitPrice,
+        crateSize,
+      }, tx);
+
+      const stock = await stockRepository.create({
+        productId: product.id,
+        quantityBottles: 0,
+        quantityCrates: 0,
+        reorderLevel: reorderLevel ?? 0,
+      }, tx);
+
+      return { product, stock };
     });
 
-    const stock = await stockRepository.create({
-      productId: product.id,
-      quantityBottles: 0,
-      quantityCrates: 0,
-      reorderLevel: reorderLevel ?? 0,
-    });
-
-    return { product, stock };
+    return result;
   }
 
   // Update a product's basic details (price change, category change, etc.)
+  // reorderLevel belongs to Stock, not Product - it is ignored here and must
+  // be updated through StockService.adjustReorderLevel.
   async updateProduct(id, data) {
-    if (data.unitPrice !== undefined) {
-      if (typeof data.unitPrice !== 'number' || data.unitPrice <= 0) {
+    const { reorderLevel, ...productFields } = data;
+
+    if (productFields.unitPrice !== undefined) {
+      if (typeof productFields.unitPrice !== 'number' || productFields.unitPrice <= 0) {
         throw new ValidationError('Unit price must be a positive number');
       }
     }
-    if (data.crateSize !== undefined && data.crateSize !== null) {
-      if (typeof data.crateSize !== 'number' || data.crateSize <= 0) {
+    if (productFields.crateSize !== undefined && productFields.crateSize !== null) {
+      if (typeof productFields.crateSize !== 'number' || productFields.crateSize <= 0) {
         throw new ValidationError('Crate size must be a positive number');
       }
     }
-    if (data.name !== undefined) {
-      if (typeof data.name !== 'string' || data.name.trim() === '') {
+    if (productFields.name !== undefined) {
+      if (typeof productFields.name !== 'string' || productFields.name.trim() === '') {
         throw new ValidationError('Product name cannot be empty');
       }
-      data.name = data.name.trim();
+      productFields.name = productFields.name.trim();
     }
-    if (data.reorderLevel !== undefined && data.reorderLevel !== null) {
-      if (typeof data.reorderLevel !== 'number' || data.reorderLevel < 0) {
-        throw new ValidationError('Reorder level must be a non-negative number');
-      }
+    if (productFields.category !== undefined && productFields.category !== null &&
+        typeof productFields.category !== 'string') {
+      throw new ValidationError('Category must be a string');
+    }
+    if (productFields.isActive !== undefined &&
+        typeof productFields.isActive !== 'boolean') {
+      throw new ValidationError('isActive must be a boolean');
     }
 
-    return productRepository.update(id, data);
+    return productRepository.update(id, productFields);
   }
 
   async getProductWithStock(id) {

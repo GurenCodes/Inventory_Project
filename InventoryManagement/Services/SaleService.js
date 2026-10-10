@@ -1,6 +1,6 @@
 // InventoryManagement/Service/SaleService.js
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+// Uses shared PrismaClient (K8 fix)
+const prisma = require('../../lib/prisma');
 
 const saleRepository = require('../Repository/Sale');
 const stockRepository = require('../Repository/Stock');
@@ -30,7 +30,10 @@ class SaleService {
       throw new NotFoundError(`User ${soldById} does not exist`);
     }
 
-    // 1. Validate all items first
+    // 1. Validate all items and read prices from Product.unitPrice server-side (K1 fix).
+    //    Client-supplied unitPrice is ignored for security.
+    const lineItems = [];
+    const seenProductIds = new Set();
     for (const item of items) {
       if (!item.productId) {
         throw new ValidationError('Each sale item must have a productId');
@@ -41,8 +44,15 @@ class SaleService {
       if (typeof item.quantityBottles !== 'number' || item.quantityBottles <= 0) {
         throw new ValidationError('Quantity must be a positive number');
       }
+      if (!Number.isInteger(item.quantityBottles)) {
+        throw new ValidationError('Quantity must be a whole number of bottles');
+      }
+      if (seenProductIds.has(item.productId)) {
+        throw new ValidationError(`Product ${item.productId} appears more than once in the sale`);
+      }
+      seenProductIds.add(item.productId);
 
-      // Check if product exists and is active
+      // Check if product exists and is active; price comes from the DB, not the client
       const product = await productRepository.findById(item.productId);
       if (!product) {
         throw new NotFoundError(`Product ${item.productId} does not exist`);
@@ -50,13 +60,6 @@ class SaleService {
       if (!product.isActive) {
         throw new ValidationError(`Product ${item.productId} is discontinued and cannot be sold`);
       }
-    }
-
-    // 2. Read prices from Product.unitPrice server-side (K1 fix)
-    //    Client-supplied unitPrice is ignored for security
-    const lineItems = [];
-    for (const item of items) {
-      const product = await productRepository.findById(item.productId);
       const unitPrice = product.unitPrice;
       const lineTotal = item.quantityBottles * Number(unitPrice);
       lineItems.push({

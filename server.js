@@ -154,13 +154,15 @@ app.post('/auth/login', loginLimiter, async (req, res, next) => {
       { expiresIn: '8h' }
     );
 
-    // Set HttpOnly cookie for secure token storage
-    // secure: true only in production (HTTPS); false for local HTTP development
+    // Set HttpOnly cookie for secure token storage.
+    // In production the frontend runs on a different origin (e.g. Vercel),
+    // so the cookie must be SameSite=None to be sent cross-origin.
+    // In development (localhost) SameSite=Strict is fine and stricter.
     const isProduction = process.env.NODE_ENV === 'production';
     res.cookie('token', token, {
       httpOnly: true,
       secure: isProduction,   // HTTPS only in production
-      sameSite: 'strict',     // CSRF protection
+      sameSite: isProduction ? 'none' : 'strict',
       maxAge: 8 * 60 * 60 * 1000, // 8 hours
       path: '/'
     });
@@ -190,37 +192,46 @@ app.post('/auth/logout', (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'strict',
+    sameSite: isProduction ? 'none' : 'strict',
     path: '/'
   });
   res.json({ ok: true });
 });
 
-// JWT Authentication Middleware (Stage 2)
-  // Verifies token and attaches user to request for protected routes
-  function authenticateToken(req, res, next) {
-    // Check for token in cookie first, then Authorization header
-    const cookieToken = req.cookies?.token;
-    const authHeader = req.headers['authorization'];
-    const headerToken = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-    
-    const token = cookieToken || headerToken;
-  
-    if (!token) {
-      throw new UnauthorizedError('Authentication token required');
-    }
-  
-    jwt.verify(token, JWT_SECRET, (err, decoded) => {
-      if (err) {
-        // All JWT verification failures are 401 (not authenticated)
-        // 403 is for authenticated but forbidden (Stage 7)
-        throw new UnauthorizedError('Invalid or expired token');
-      }
-      // Attach decoded user info (userId, role) to request
-      req.user = decoded;
-      next();
-    });
+// GET /auth/me - Return the currently authenticated user.
+// Lets the frontend restore a session from the HttpOnly cookie without
+// keeping any user data in localStorage/sessionStorage.
+app.get('/auth/me', authenticateToken, async (req, res) => {
+  const user = await userService.getUserById(req.user.userId);
+  if (!user) {
+    throw new NotFoundError('Authenticated user no longer exists');
   }
+  res.json(user);
+});
+
+// JWT Authentication Middleware (Stage 2)
+// Verifies token (cookie first, then Authorization header) and attaches
+// user info to the request for protected routes.
+function authenticateToken(req, res, next) {
+  const cookieToken = req.cookies?.token;
+  const authHeader = req.headers['authorization'];
+  const headerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  const token = cookieToken || headerToken;
+
+  if (!token) {
+    return next(new UnauthorizedError('Authentication token required'));
+  }
+
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch (err) {
+    // All JWT verification failures are 401 (not authenticated)
+    // 403 is for authenticated but forbidden (Stage 7)
+    next(new UnauthorizedError('Invalid or expired token'));
+  }
+}
 
 // Role-based Authorization Middleware (Stage 7)
 // Checks if the authenticated user has one of the required roles
@@ -298,6 +309,8 @@ app.post('/products/:id/reactivate', authenticateToken, requireRole('ADMIN'), as
 });
 
 // PUT /products/:id - update a product (Admin only)
+// Product fields are updated on Product; reorderLevel is applied to the
+// product's Stock row (it is not a Product column).
 app.put('/products/:id', authenticateToken, requireRole('ADMIN'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
@@ -311,10 +324,18 @@ app.put('/products/:id', authenticateToken, requireRole('ADMIN'), async (req, re
     category,
     unitPrice,
     crateSize,
-    reorderLevel,
   });
-  
-  res.json(result);
+
+  if (reorderLevel !== undefined && reorderLevel !== null) {
+    if (typeof reorderLevel !== 'number' || reorderLevel < 0) {
+      throw new ValidationError('Reorder level must be a non-negative number');
+    }
+    await stockService.adjustReorderLevel(id, reorderLevel);
+  }
+
+  // Return the product together with its (possibly updated) stock row
+  const productWithStock = await productService.getProductWithStock(id);
+  res.json(productWithStock || result);
 });
 
 // GET /products/:id - get a product with its stock (Admin + Manager)
@@ -588,10 +609,22 @@ app.use((err, req, res, next) => {
   if (err.code === 'P2003') {
     return res.status(400).json({ error: 'Referenced record does not exist' });
   }
+
+  // Prisma validation error (unknown argument, wrong type) - bad client input,
+  // not a server fault. Surfacing these as 500s hides API contract bugs.
+  if (err.name === 'PrismaClientValidationError') {
+    console.error('Prisma validation error:', err.message);
+    return res.status(400).json({ error: 'Invalid data provided' });
+  }
   
   // Request body too large (express.json limit)
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: 'Request body too large' });
+  }
+
+  // Malformed JSON body
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON in request body' });
   }
   
   // Known application errors

@@ -15,11 +15,12 @@ class SaleRepository {
     });
   }
 
-  // Sale plus its line items and each item's product
+  // Sale plus its line items, each item's product, and the seller
   async findByIdWithItems(id) {
     return prisma.sale.findUnique({
       where: { id },
       include: {
+        soldBy: { select: { id: true, fullName: true } },
         items: { include: { product: true } },
       },
     });
@@ -29,6 +30,10 @@ class SaleRepository {
     return prisma.sale.findMany({
       where: status ? { status } : undefined,
       orderBy: { createdAt: 'desc' },
+      include: {
+        soldBy: { select: { id: true, fullName: true } },
+        items: { select: { id: true, productId: true, quantityBottles: true, unitPrice: true, lineTotal: true } },
+      },
     });
   }
 

@@ -142,7 +142,7 @@ async function runTests() {
   console.log('\n--- updateProduct() ---');
   results.updateProduct = {
     validInput: false,
-    missingFields: [],
+    missingFields: 'N/A',
     invalidValues: [],
     businessRules: 'N/A',
     dbState: false,
@@ -175,7 +175,6 @@ async function runTests() {
   }
 
   // Missing fields - N/A (update allows partial)
-  results.updateProduct.missingFields.push({ field: 'N/A (partial updates allowed)', passed: 'N/A' });
   console.log('➖ Missing fields: N/A - Partial updates allowed');
 
   // Invalid values

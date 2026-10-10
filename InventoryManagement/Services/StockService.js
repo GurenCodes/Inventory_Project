@@ -57,21 +57,46 @@ class StockService {
     const bottlesFromCrates = (crateCount ?? 0) * crateSize;
     const totalBottlesAdded = bottlesFromCrates + (bottleCount ?? 0);
 
-    // $transaction ensures both writes succeed together or not at all
-    const [batchOrder, updatedStock] = await prisma.$transaction([
-      prisma.itemBatchOrder.create({
-        data: { productId, receivedById, crateCount: crateCount ?? 0, bottleCount: bottleCount ?? 0, costPerUnit, expiryDate },
-      }),
-      prisma.stock.update({
-        where: { productId },
-        data: {
-          quantityBottles: { increment: totalBottlesAdded },
-          quantityCrates: { increment: crateCount ?? 0 },
-        },
-      }),
-    ]);
+    // $transaction ensures both writes succeed together or not at all.
+    // K7: quantityCrates is always recalculated from total bottles so it
+    // never drifts when the existing stock held partial crates.
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const batchOrder = await tx.itemBatchOrder.create({
+          data: { productId, receivedById, crateCount: crateCount ?? 0, bottleCount: bottleCount ?? 0, costPerUnit, expiryDate },
+        });
 
-    return { batchOrder, updatedStock };
+        const stock = await tx.stock.findUnique({ where: { productId } });
+        if (!stock) {
+          throw new NotFoundError(`No stock record for product ${productId}`);
+        }
+
+        const newBottles = stock.quantityBottles + totalBottlesAdded;
+        const newCrates = crateSize > 0
+          ? Math.floor(newBottles / crateSize)
+          : stock.quantityCrates + (crateCount ?? 0);
+
+        // Guard on the bottle count we read so a concurrent update cannot
+        // silently lose this delivery (retryable error instead of drift).
+        const stockUpdate = await tx.stock.updateMany({
+          where: { productId, quantityBottles: stock.quantityBottles },
+          data: {
+            quantityBottles: newBottles,
+            quantityCrates: newCrates,
+          },
+        });
+        if (stockUpdate.count === 0) {
+          throw new ValidationError('Stock was modified concurrently, please retry the delivery');
+        }
+
+        const updatedStock = await tx.stock.findUnique({ where: { productId } });
+
+        return { batchOrder, updatedStock };
+      },
+      { timeout: 60000 }
+    );
+
+    return result;
   }
 
   // K7 fix: Increment stock by bottles and update crates accordingly
