@@ -1,7 +1,7 @@
 # Floramagg Drinks Shop — Project Context & Handover
 
 Single source of truth for developers and AI assistants (opencode / Nemotron). Replaces the earlier PROJECT_CONTEXT.md.
-Last updated: 2026-10-10 (second docs consistency audit, after push). State: Stage 12 COMPLETE — backend audit fixes + full frontend shipped; `npm test` all 9 suites green (recorded run 2026-10-10); frontend `npm run build` green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy — see §17 and the §2 outstanding-work checklist). **Git: `main` is in sync with `origin/main` (0 ahead / 0 behind, HEAD `cefc4ef`) — all 2026-10-10 work was pushed on 2026-10-10. Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K10–K12, K15, K16, K18).
+Last updated: 2026-10-10 (corrective session: stock concurrency, security-test integrity, auth hardening, business timezone). State: Stage 12 COMPLETE + corrective fixes shipped; `npm test` **all 11 suites** green (recorded run 2026-10-10, post-fix); frontend lint + build green (recorded run 2026-10-10). Next: Stage 13 (Vercel deploy — see §17 and the §2 outstanding-work checklist). **Git: implementation commit `5a894bf` (+ this docs commit) is awaiting owner-confirmed push; previous HEAD `a03082a` was in sync with `origin/main`. Working tree status changes whenever this document is edited — always re-verify with `git status`; this file does not track it live.** See section 2 for the authoritative current state and section 12 for open issues (K5, K11, K12, K15, K16, K18).
 Read sections 1–4 first, section 11 before touching git or the server, and section 12 before adding features.
 Update sections 2, 12 and 13 at the end of every work session.
 
@@ -36,6 +36,7 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 | Stage 12: frontend development | **COMPLETE — build green, all 12 pages implemented** (frontend not deployed) |
 | Stage 13: frontend deployment (Vercel) | **NOT STARTED** |
 | 2026-10 audit: backend fixes + frontend completion | **VERIFIED — COMPLETE** |
+| 2026-10-10 corrective session: stock atomicity, security tests, auth hardening, Douala timezone | **VERIFIED — COMPLETE** (commit `5a894bf`; all 11 suites green; push pending owner confirmation) |
 
 ### Verified stack (from package.json files, 2026-10-10)
 
@@ -54,9 +55,13 @@ Floramagg Business Ventures is a natural fruit juice producer and distributor in
 
 | Claim | Evidence level |
 |---|---|
-| `npm test` → all 9 suites passed | **Recorded execution result** (2026-10-10; see §9 for suite trust ranking) |
+| `npm test` → all **11** suites passed | **Recorded execution result** (2026-10-10, after the corrective session: StockConcurrency 41/41, Stage9Security 52/52, ReportTimezone 18/18, Regression 44/44) |
+| Stock crate/bottle invariant under concurrency | **Recorded execution result** (StockConcurrency suite: concurrent increments/decrements/deliveries against the live DB; single-statement atomic SQL) |
+| Daily reports use the Africa/Douala business calendar | **Recorded execution result** (ReportTimezone suite: boundary sales at 22:30Z / 22:59:59.999Z / 23:00:00Z around local midnight) |
+| Stage 9 security controls (headers, CORS, rate limit, K1/K2/K3/K7, no hash exposure) | **Recorded execution result** (Stage9Security suite: real assertions, non-zero exit on failure) |
 | Frontend `npm run build` (`tsc -b && vite build`) green | **Recorded execution result** (2026-10-10) |
-| Frontend lint (`oxlint`) exits 0 | **Recorded execution result** (2026-10-10, after `ProductForm.tsx` hooks fix: 0 errors, 3 advisory warnings) |
+| Frontend lint (`oxlint`) exits 0 | **Recorded execution result** (2026-10-10: 0 errors, 3 advisory warnings) |
+| Cookie-only auth viable cross-origin in a real browser | **Unverified** — bearer fallback deliberately retained (see §2/Task C note); needs deployed Vercel→Render setup |
 | Render backend deployed, `/health` 200, migrations applied | **Verified at Stage 11** (historical; live state not re-verified 2026-10-10) |
 | Cookie attributes in production (`SameSite=None; Secure`) | **Verified in code** (`server.js`) + **Regression test asserts the Set-Cookie header**; not verified in a real cross-origin browser session |
 | Frontend works end-to-end in a browser | **Unverified** — no E2E/browser testing performed |
@@ -81,11 +86,16 @@ This audit verified claims in this document against the real code and tests. Fin
 Known still-open items are tracked in section 12 (K5, K10–K12, K15, K16, K18; **K17 resolved 2026-10-10**) and summarized in the §2 outstanding-work checklist above.
 - **2026-10-10 second consistency audit (docs-only, this commit):** verified the document against the repo after the push; corrected the stale "ahead-by-7 / NOT pushed" Git claims (all eight commits are on `origin/main`, HEAD `cefc4ef`), fixed the broken Stage 9/Stage 10 roadmap numbering, removed duplicate route rows in §16.2, added the authoritative outstanding-work checklist in §2 (superseding §18/§18b), and aligned the header, §17, §19 and FINAL VERDICT with the post-push state. No code changes.
 
-Git (2026-10-10, after this audit): branch `main`; **in sync with `origin/main` (0 ahead / 0 behind, HEAD `cefc4ef`)**. All eight 2026-10-10 commits — `d877344`, `ec3bb1a`, `da2ab4e`, `af985a5`, `0a894f7`, `50dcde9`, `86bc0b9`, `cefc4ef` — were pushed to `origin/main` on 2026-10-10 with the owner's explicit confirmation (the §10 rule was followed). Future pushes still require owner confirmation per §10. Treat any "clean tree" claim in this file as historical unless re-verified with `git status`.
+Git (2026-10-10, after this session's implementation commit): branch `main`; HEAD `5a894bf` (fix: atomic stock crate-sync, real security assertions, auth hardening, Douala business-timezone reports) + this docs commit — **both pending owner-confirmed push** (§10). The previous HEAD `a03082a` was verified in sync with `origin/main` before this session. Treat any "clean tree" claim in this file as historical unless re-verified with `git status`.
 
-### Outstanding work (authoritative checklist — 2026-10-10)
+- **2026-10-10 corrective session (commit `5a894bf`):** four targeted fixes, each with new focused tests — (1) **stock concurrency**: `incrementBottlesAndCrates`, `conditionalDecrementWithCrates` and `receiveBatchOrder` now update bottles AND crates in ONE parameterized SQL statement (`UPDATE "Stock" … FLOOR((…)::numeric / crateSize)`), eliminating the guard window where a successful return could carry a stale crate count; no retries needed (single-statement atomicity); new `StockConcurrency` suite 41/41. (2) **security-test integrity**: `Stage9Security.test.js` rewritten — all "PASS (verified in service tests)" placeholders replaced with real in-suite assertions (K1 price spoofing, K2 concurrent oversell, K3 cancel-restock, K7 invariant), shared-Prisma check now scans every repo+service file, temp-user login (no seeded credentials), proper exit codes; `run-all.js` treats the old placeholder string as a failure marker and flags spawn/timeout failures. (3) **auth hardening**: bearer fallback **deliberately retained** (frontend not deployed; third-party-cookie viability unverifiable from the repo — owner decision listed in the checklist); `authStore` no longer persists `isAuthenticated` (only `user` display cache); axios 401 responses now `clearSession()`; Regression sections 8–9 cover dev-cookie attrs, logout clearing, expired-token 401, role intactness, and static no-persistence checks. (4) **business timezone**: new `lib/businessTime.js` (Intl-only, no new dependency) implements the `Africa/Douala` calendar — daily report generation and queries use the half-open Douala-day interval, future-date validation uses the business calendar, `reportDate` storage stays at UTC midnight of the calendar date (unique constraint + existing rows preserved); frontend `businessToday()`/`businessDaysAgo()` replace UTC-based date defaults and `formatReportDate` no longer shifts days for non-UTC browsers; new `ReportTimezone` suite 18/18. Full verification: `npm test` → all 11 suites passed; frontend lint 0 errors; build green.
 
-> This is the single authoritative list of what remains. Older checklists (§14 historical, §18, §18b, §16.5/16.8, FINAL VERDICT) are superseded by this list; §12 tracks the same items with evidence and suggested fixes.
+### Outstanding work (authoritative checklist — 2026-10-10, after corrective session)
+
+> This is the single authoritative list of what remains. Older checklists (§14 historical, §18, §18b, §16.5/16.8, FINAL VERDICT) are superseded by this list; §12 tracks the same items with evidence and suggested fixes. Items completed in the 2026-10-10 corrective session (stock atomicity, security-test integrity, auth store hardening, Douala business timezone / old K10) are removed.
+
+**Git:**
+- [ ] Push the two pending commits (`5a894bf` + this docs commit) to `origin/main` after owner confirmation (§10).
 
 **Deployment (Stage 13, §17):**
 - [ ] Import the repo in Vercel (Framework: Vite, Root Directory: `frontend`, Build Command: `npm run build`, Output: `dist`).
@@ -93,16 +103,16 @@ Git (2026-10-10, after this audit): branch `main`; **in sync with `origin/main` 
 - [ ] Update Render `ALLOWED_ORIGINS` to the exact Vercel domain(s).
 - [ ] Browser-verify cross-origin login, cookie persistence, logout (never verified in a real browser; only code + server-side tests exist).
 - [ ] Confirm `NODE_ENV=production` on Render (K18) and re-run the production-cookie check.
+- [ ] **Owner decision:** after deployment, confirm whether third-party cookies work for Vercel→Render; if yes, remove the sessionStorage bearer fallback and stop returning the token in the login body (cookie-only auth); if no, keep the fallback and accept the documented XSS trade-off (§2/Task C note).
 
 **Data / infra risks:**
 - [ ] K5 (HIGH): separate dev/test database; make `seed.js` refuse to run without `--force`.
-- [ ] K10 (MED): decide business-timezone (WAT) day-boundary handling before the first real daily close-out.
 - [ ] Pre-go-live: remove/replace seeded logins (`staff1`…`staff10`); strong `JWT_SECRET`; separate prod DB; backups understood.
 
 **Optional hardening / polish (not blocking deploy):**
-- [ ] K11: JWT revocation/refresh consideration (low priority; logout cookie-clearing exists).
-- [ ] K12: require positive integer or null for `crateSize`.
-- [ ] K15/K14: migrate legacy suites to Jest/supertest; until then trust `Regression.test.js` and read suite output.
+- [ ] K11: JWT revocation/refresh consideration (low priority; logout cookie-clearing exists; fallback token trade-off documented).
+- [ ] K12: require positive integer or null for `crateSize` at creation (current behavior: crate sync skipped when invalid — preserved and tested).
+- [ ] K15/K14: migrate legacy service suites to Jest/supertest; Stage9Security, StockConcurrency, ReportTimezone and Regression now assert for real.
 - [ ] K16: route-level `React.lazy` code splitting (~610 kB single chunk).
 - [ ] UI polish: ErrorBoundary, dark mode, E2E/browser tests (§16.7 Phase 9 partial).
 - [ ] Root `package.json` residual cleanup: unused frontend-ish dependencies/devDependencies and the unused `cors` package (§3).
@@ -114,7 +124,7 @@ Git (2026-10-10, after this audit): branch `main`; **in sync with `origin/main` 
 - Frontend dependencies live in `frontend/package.json` (React 19, Vite 8, Tailwind 4, React Router 7, TanStack Query, Zustand, react-hook-form, zod, axios, autoprefixer). The root `package.json` still lists unused frontend-ish **dependencies** (`@tanstack/react-query`, `@tanstack/react-query-devtools`, `react-hot-toast`, `react-router-dom`) and **devDependencies** (`postcss`, `tailwindcss`, `vite`, `typescript` ^7.0.2, `@types/react-dom`, `@vitejs/plugin-react`, `@types/node`, `zustand`) as harmless residue, plus the unused `cors` package (CORS is manual middleware, §7d); the formerly-masking `axios` and `autoprefixer` root copies were removed on 2026-10-10 (K17). Optional cleanup — see the §2 outstanding-work checklist.
 - Tools: VS Code, pgAdmin4, opencode 1.18.x using NVIDIA Nemotron 3 Ultra 550B. OS: Windows (PowerShell / cmd).
 - `.env` (never commit): `DATABASE_URL` (Aiven string, `sslmode=require`), `JWT_SECRET`, optional `PORT` (default 3000). The Aiven database is named `defaultdb`. The server also reads `NODE_ENV` (production cookie behavior) and `ALLOWED_ORIGINS` (CORS).
-- Commands: `npm start` | `npm test` (runs `tests/run-all.js`, all 9 suites) | `npx prisma generate` (after any schema change) | `npx prisma migrate dev --name <name>` (dev) | `npx prisma migrate deploy` (hosted) | `node seed.js` (**DESTRUCTIVE**) | `node tests/<Name>.test.js`. The `tests/` folder also holds two standalone utility scripts **not** part of `npm test`: `test-db-latency.js` and `test-jwt-expiration.js`. Frontend: `npm run dev|build|lint|preview` inside `frontend/`.
+- Commands: `npm start` | `npm test` (runs `tests/run-all.js`, all 11 suites) | `npx prisma generate` (after any schema change) | `npx prisma migrate dev --name <name>` (dev) | `npx prisma migrate deploy` (hosted) | `node seed.js` (**DESTRUCTIVE**) | `node tests/<Name>.test.js`. The `tests/` folder also holds two standalone utility scripts **not** part of `npm test`: `test-db-latency.js` and `test-jwt-expiration.js`. Frontend: `npm run dev|build|lint|preview` inside `frontend/`.
 - Express 5 note: rejected promises in async route handlers are forwarded to error middleware automatically.
 
 ## 4. Architecture and conventions
@@ -1290,17 +1300,19 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 
 **STAGE 12 COMPLETE — backend + frontend verified (2026-10-10).**
 
-`npm test` → all 9 suites passed (Regression 29/29). Frontend `npm run build` green.
+`npm test` → all **11** suites passed after the corrective session (StockConcurrency 41/41, Stage9Security 52/52, ReportTimezone 18/18, Regression 44/44). Frontend lint 0 errors; `npm run build` green.
+
+**CORRECTIVE SESSION (2026-10-10, commit `5a894bf`): COMPLETE** — (A) stock bottle/crate mutations are single-statement atomic (no silent stale crates, no oversell, no lost deliveries; K2/K7 re-verified under real concurrency); (B) Stage9Security placeholders replaced with real assertions and honest exit codes; (C) auth hardened without breaking compatibility — bearer fallback **retained on purpose** pending a post-deploy owner decision, store persistence tightened, 401s clear the session; (D) daily reports now use the `Africa/Douala` business calendar (K10 resolved) with boundary tests.
 
 **PROJECT_CONTEXT.md consistency audit (2026-10-10): COMPLETE** — false/stale claims corrected, duplicate sections collapsed; new risks K17 (axios undeclared in `frontend/package.json`) and K18 (NODE_ENV production dependency) documented in §12.
 
 **K17 RESOLVED (2026-10-10 follow-up):** axios + autoprefixer now declared in `frontend/package.json` with updated `frontend/package-lock.json`; masking root copies removed; isolated clean-room `npm ci` + build verified; oxlint clean (0 errors) after fixing conditional hooks in `ProductForm.tsx`; backend suite re-verified (all 9 green).
 
-**All work is pushed (2026-10-10):** `main` in sync with `origin/main`, HEAD `cefc4ef` (8 commits pushed that day with owner confirmation).
+**Git status (2026-10-10, this docs commit):** the corrective-session commit `5a894bf` + this documentation commit are **pending owner-confirmed push** — do not treat them as pushed until `git status` / `git log origin/main` confirm it. (Earlier that day, all eight prior commits through `a03082a` were pushed with owner confirmation.)
 
 **Second consistency audit (2026-10-10, docs-only):** stale Git claims, roadmap numbering, duplicate §16.2 rows, and checklist fragmentation corrected; authoritative outstanding-work checklist added in §2.
 
-**Remaining work:** everything outstanding is listed in the **§2 outstanding-work checklist** — Stage 13 (Vercel deployment — CORS/`ALLOWED_ORIGINS` + browser verification still pending) and the open known issues in section 12 (K5, K10, K11, K12, K15, K16, K18).
+**Remaining work:** everything outstanding is listed in the **§2 outstanding-work checklist** — push confirmation for the two pending commits, Stage 13 (Vercel deployment — CORS/`ALLOWED_ORIGINS` + browser verification still pending), the cookie-only-vs-fallback owner decision, and the open known issues in section 12 (K5, K11, K12, K15, K16, K18).
 
 - All dates are UTC. `reportDate` is stored at `00:00:00.000Z`; the sales window is that UTC day. "Today" = the server's UTC date. Future dates are rejected; today is accepted.
 - Never use local-time methods (`setHours`, `setDate`) on dates. Use `setUTCHours`, `setUTCDate`, or ISO strings.
@@ -1311,12 +1323,13 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
 ## 9. Testing
 
 - **`npm test`** now runs everything: `tests/run-all.js` spawns each suite as a child process, watches for `❌` / `Total: N passed, M failed` patterns and non-zero exits, and prints a final `RESULT:` line. It fails (non-zero) if any suite fails.
-- Individual suites (exact filenames in `tests/`): `node tests/<Name>.test.js` (`AuthService.bcrypt`, `ProductService`, `StockService`, `SaleService`, `ReportService`, `Authorization`, `Stage8Api`, `Stage9Security`, `Regression`; `run-all.js` spawns all nine). Two standalone utility scripts exist alongside them but are **not** part of `npm test`: `test-db-latency.js`, `test-jwt-expiration.js`.
-- **Trust ranking (from the 2026-10 audit):** `Regression.test.js` (29 assertions, real HTTP + DB checks, exits non-zero on failure) is the most trustworthy. `Authorization.test.js` and `Stage8Api.test.js` do real requests. Several older suites (`ProductService`, `StockService`, etc.) print ✅/❌ but historically exited 0 regardless of failures — read their output, don't trust the exit code. `Stage9Security.test.js` contains hardcoded PASS lines (its K8 check was broken; a static-file check was added in Regression instead).
+- Individual suites (exact filenames in `tests/`): `node tests/<Name>.test.js` (`AuthService.bcrypt`, `ProductService`, `StockService`, `SaleService`, `ReportService`, `ReportTimezone`, `Authorization`, `Stage8Api`, `Stage9Security`, `StockConcurrency`, `Regression`; `run-all.js` spawns all eleven). Two standalone utility scripts exist alongside them but are **not** part of `npm test`: `test-db-latency.js`, `test-jwt-expiration.js`.
+- **Trust ranking (updated 2026-10-10):** `Regression.test.js` (44 assertions, real HTTP + DB checks, exits non-zero on failure), `StockConcurrency.test.js` (41 assertions, real concurrent DB operations), `ReportTimezone.test.js` (18 assertions, deterministic boundary timestamps) and `Stage9Security.test.js` (52 real assertions, exits non-zero on failure) are trustworthy. `Authorization.test.js` and `Stage8Api.test.js` do real requests. Several older service suites (`ProductService`, `StockService`, etc.) print ✅/❌ but historically exited 0 regardless of failures — read their output, don't trust the exit code. The `run-all.js` runner fails any suite whose output contains the old `PASS (verified in service tests)` placeholder or spawn/timeout errors.
+- **K15 status (2026-10-10):** the misleading Stage9Security placeholders and the first-match-only shared-Prisma check are fixed; the legacy service suites still have weak exit codes (runner output-scan compensates).
 - Output format per function: valid input, missing fields, invalid values, business rules, DB state verified by direct query, transaction integrity. Each marked PASS / FAIL / N/A.
 - Conventions: `TEST_` prefix for test data; clean up in `try/finally`; each test uses its own non-colliding date (report tests use 2026-07-0x); assert the **specific** expected error message. A test that only checks "something threw" once passed because of a unique-constraint error, which is a false pass.
 - Tests run against the live shared Aiven database (see K5).
-- Last known (2026-10-10): `npm test` → all 9 suites passed, Regression 29/29. Re-verified later the same day after the K17 dependency fix and `ProductForm.tsx` hooks fix: all 9 suites passed again, Regression 29/29. Service suites use short passwords (`pass`, `newpass`) deliberately — password min-length enforcement in the UI is 8 chars, but the backend accepts any non-empty password, so these still pass.
+- Last known (2026-10-10): `npm test` → **all 11 suites passed** after the corrective session (StockConcurrency 41/41, Stage9Security 52/52, ReportTimezone 18/18, Regression 44/44). Service suites use short passwords (`pass`, `newpass`) deliberately — password min-length enforcement in the UI is 8 chars, but the backend accepts any non-empty password, so these still pass.
 - Seed logins (DEV ONLY, remove before go-live): `staff1`…`staff10@floramagg.com`, password `password_N`. Odd N = MANAGER, even N = ADMIN. IDs change on every reseed.
 
 ## 10. Working with the AI assistant (opencode)
@@ -1345,20 +1358,20 @@ Preferences of the project owner: plain-language explanation before code, step-b
 | ID | Priority | Issue | Suggested fix |
 |---|---|---|---|
 | K1 | HIGH | ~~`completeSale` trusts the client-supplied `unitPrice`, so a user can sell at any price.~~ **RESOLVED in Stage 9** | ~~Read price from `Product.unitPrice` server-side; allow overrides for Admins only.~~ |
-| K2 | HIGH | ~~Stock check happens outside the transaction, so two simultaneous sales can oversell and push stock negative.~~ **RESOLVED in Stage 9** | ~~Atomic conditional decrement inside the transaction (`updateMany where quantityBottles >= qty`, verify count).~~ |
+| K2 | HIGH | ~~Stock check happens outside the transaction, so two simultaneous sales can oversell and push stock negative.~~ **RESOLVED in Stage 9; re-verified under real concurrency 2026-10-10** | ~~Atomic conditional decrement inside the transaction (`updateMany where quantityBottles >= qty`, verify count).~~ Now a single parameterized `UPDATE … WHERE quantityBottles >= delta` that also recomputes crates (StockConcurrency suite proves no oversell). |
 | K3 | HIGH | ~~`cancelSale` has unclear semantics: it works on completed sales without restocking, and can cancel an already-cancelled sale. `pending` is never created by the API.~~ **RESOLVED in Stage 9** | ~~Decide policy: cancel = restock, allowed only from `completed`, Admin-only.~~ |
 | K4 | HIGH | ~~No role enforcement: any logged-in user can do anything.~~ **RESOLVED in Stage 7** | ~~`requireRole` middleware on all protected routes; 56 authorization tests.~~ |
 | K5 | HIGH | Dev, tests and `seed.js` all hit the shared production-style Aiven DB; `seed.js` wipes every table. | Create a separate dev/test database; make seed refuse to run without a `--force` flag. |
 | K6 | MED | ~~Error mapping uses `err.message.includes(...)`; invalid/expired JWT returns 403 (should be 401); no central error middleware.~~ **RESOLVED in Stage 6** | ~~Stage 6: custom error classes + one error handler.~~ |
-| K7 | MED | ~~`quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles.~~ **RESOLVED in Stage 9** | ~~Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide.~~ |
+| K7 | MED | ~~`quantityCrates` only increases (on delivery); sales never decrement it, so it drifts from bottles.~~ **RESOLVED in Stage 9; atomicity gap closed 2026-10-10** | ~~Derive crates from bottles ÷ crateSize, or maintain both consistently. Decide.~~ Crates are now derived inside the SAME SQL statement that moves bottles (`FLOOR((bottles±delta)::numeric / crateSize)`), so no concurrent interleaving can leave a stale crate count; verified by the StockConcurrency suite. |
 | K8 | MED | ~~Every file creates its own `new PrismaClient()` (about 12 connection pools); risks hitting the free-tier connection limit.~~ **RESOLVED in Stage 9** | ~~One shared `lib/prisma.js` instance.~~ |
 | K9 | MED | ~~No user-management routes; users only via seed/scripts.~~ **RESOLVED in Stage 8** | ~~Admin-only create user / change password / list users.~~ |
-| K10 | MED | Shop day (UTC+1) vs UTC day offset of one hour. | A `BUSINESS_TZ` offset constant for day boundaries, or `@db.Date` for reportDate. |
-| K11 | LOW | JWT role stays stale up to 8h after a role change; **logout exists** (`POST /auth/logout` clears the cookie) but the JWT itself is not server-side revocable (blacklist/`jti`), and there is no refresh flow. | Short expiry + refresh, or re-check role from DB on sensitive routes; optional token blacklist. |
+| K10 | ~~MED~~ **RESOLVED (2026-10-10)** | ~~Shop day (UTC+1) vs UTC day offset of one hour.~~ | Fixed: `lib/businessTime.js` implements the `Africa/Douala` (UTC+1, IANA zone) business calendar — report generation/queries use the half-open Douala-day interval, future-date validation uses the business calendar, storage stays at UTC midnight of the calendar date. Frontend defaults/validation use `businessToday()`. Verified by the ReportTimezone suite (boundary sales at 22:30Z / 22:59:59.999Z / 23:00:00Z). |
+| K11 | LOW | JWT role stays stale up to 8h after a role change; **logout exists** (`POST /auth/logout` clears the cookie) but the JWT itself is not server-side revocable (blacklist/`jti`), and there is no refresh flow. The frontend **retains a sessionStorage bearer fallback** (deliberate, 2026-10-10: cookie-only auth is not yet proven viable for Vercel→Render cross-origin; see §2 outstanding-work owner decision). Auth store no longer persists `isAuthenticated`; axios 401s reset the local session. | Short expiry + refresh, or re-check role from DB on sensitive routes; optional token blacklist. Decide the cookie-only vs fallback question after Stage 13 deployment. |
 | K12 | LOW | `crateSize` of 0 is allowed, so crate conversion silently yields 0 bottles. | Require positive integer or null. |
 | K13 | LOW | ~~`receiveBatchOrder` and `generateDailyReport` don't verify the user exists, so a raw foreign-key error can surface.~~ **RESOLVED** | ~~Both services now check `userRepository.findById` and throw a clear NotFoundError.~~ |
 | K14 | LOW | ~~No `npm test`, no runner.~~ **PARTIALLY RESOLVED (2026-10)** | `npm test` runs `tests/run-all.js` (9 suites, fails on any failure). Not Jest/supertest yet; older suites still have weak exit codes — see section 9. |
-| K15 | MED | Test harnesses can false-pass: several suites print ✅/❌ but exit 0 regardless; `Stage9Security.test.js` has hardcoded PASS lines. | Migrate suites to Jest/supertest with real assertions and exit codes; until then rely on `Regression.test.js` + read suite output. |
+| K15 | MED | Test harnesses can false-pass: several suites print ✅/❌ but exit 0 regardless. **Partially improved 2026-10-10:** Stage9Security placeholders removed (real assertions + non-zero exit); `run-all.js` now fails suites that print the old placeholder string or that hit spawn/timeout errors. | Migrate the remaining legacy service suites to Jest/supertest with real assertions and exit codes; until then rely on `Regression`/`StockConcurrency`/`ReportTimezone`/`Stage9Security` + read suite output. |
 | K16 | LOW | Frontend production build is a single ~610 kB chunk (no code splitting). | Route-level `React.lazy` + dynamic import; optional. |
 | K17 | ~~HIGH~~ **RESOLVED (2026-10-10)** | ~~`axios` is imported by `frontend/src/services/api.ts` but is **not** declared in `frontend/package.json`; it resolves only from the root `node_modules` in this monorepo. A Vercel (or any frontend-only) install/build will fail. Root `package.json` also lists frontend-ish deps the backend does not need, and the `cors` npm package is installed but never imported (CORS is manual middleware).~~ **Fixed:** `axios` `^1.20.0` + `autoprefixer` `^10.6.1` declared in `frontend/package.json`/lockfile (autoprefixer was a second, clean-room-discovered instance of the same bug); masking root copies of both removed. Isolated clean-room `npm ci` + `npm run build` verified passing. | Residual (optional): prune remaining unused frontend-ish root dev deps and the unused `cors` package. |
 | K18 | MED | Cookie auth production behavior depends on `NODE_ENV=production` being set on the host (drives `secure` + `sameSite: 'none'` + CORS credentials). This has not been verified against the live Render service config. | Confirm `NODE_ENV=production` in Render; re-run the production-cookie check (Regression suite already covers it in production mode). |
