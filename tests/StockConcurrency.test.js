@@ -183,6 +183,21 @@ async function main() {
       const final = await prisma.stock.findUnique({ where: { productId: p.id } });
       assert(final.quantityBottles === 24, `2 concurrent deliveries of 12 -> 24 bottles (got ${final.quantityBottles})`);
       assertInvariant(final, 12, 'persisted row after concurrent deliveries');
+      // Delivery records must match stock: one batch order per successful delivery.
+      const orders = await prisma.itemBatchOrder.count({ where: { productId: p.id } });
+      assert(orders === 2, `exactly 2 delivery records for 2 concurrent deliveries (got ${orders})`);
+      // Each returned snapshot is a consistent view at its transaction's
+      // read time (one or both deliveries applied, depending on commit
+      // interleaving) and must satisfy the crate invariant; the persisted
+      // row reflects both deliveries.
+      assertInvariant(a.updatedStock, 12, 'returned updatedStock (delivery A view)');
+      assertInvariant(b.updatedStock, 12, 'returned updatedStock (delivery B view)');
+      for (const [label, snap] of [['A', a.updatedStock], ['B', b.updatedStock]]) {
+        assert(
+          snap.quantityBottles === 12 || snap.quantityBottles === 24,
+          `snapshot ${label} is a valid prefix state 12 or 24 (got ${snap.quantityBottles})`
+        );
+      }
       await prisma.itemBatchOrder.deleteMany({ where: { productId: p.id } });
     }
 
@@ -249,6 +264,15 @@ async function main() {
       const pNull = await makeProduct(null, 4, 2);
       const r3 = await stockRepository.incrementBottlesAndCrates(pNull.id, 8, null);
       assert(r3.quantityBottles === 12 && r3.quantityCrates === 2, `crateSize=null: bottles 12, crates untouched at 2 (got ${r3.quantityBottles}/${r3.quantityCrates})`);
+
+      // Negative crateSize follows the same documented bottles-only policy
+      // (never divides by a non-positive size).
+      const pNeg = await makeProduct(-5, 6, 1);
+      const r4 = await stockRepository.incrementBottlesAndCrates(pNeg.id, 3, -5);
+      assert(r4.quantityBottles === 9 && r4.quantityCrates === 1, `crateSize=-5: bottles 9, crates untouched at 1 (got ${r4.quantityBottles}/${r4.quantityCrates})`);
+      // NaN crateSize also falls back to bottles-only (no division by NaN).
+      const r5 = await stockRepository.incrementBottlesAndCrates(pNeg.id, 1, NaN);
+      assert(r5.quantityBottles === 10 && r5.quantityCrates === 1, `crateSize=NaN: bottles 10, crates untouched at 1 (got ${r5.quantityBottles}/${r5.quantityCrates})`);
     }
 
     // ============================================================
@@ -265,6 +289,71 @@ async function main() {
         threw = e;
       }
       assert(!!threw && threw.code === 'P2025', `missing stock row throws P2025-coded error (got: ${threw && (threw.code || threw.message)})`);
+
+      // A conditional decrement against a missing row reports 0 affected
+      // rows (never a false success); completeSale maps that to a 400.
+      const affected = await stockRepository.conditionalDecrementWithCrates(p.id, 1, 12);
+      assert(affected === 0, `conditional decrement on missing row returns 0 (got ${affected})`);
+    }
+
+    // ============================================================
+    console.log('\n--- 13. Concurrent double-cancel restores stock exactly once ---');
+    {
+      const p = await makeProduct(12, 30, 2);
+      const sale = await saleService.completeSale({
+        soldById: user.id,
+        items: [{ productId: p.id, quantityBottles: 6 }],
+      });
+      assert(sale.status === 'completed', 'sale created as completed');
+      const stockAfterSale = await prisma.stock.findUnique({ where: { productId: p.id } });
+      assert(stockAfterSale.quantityBottles === 24, `stock after sale = 24 (got ${stockAfterSale.quantityBottles})`);
+
+      // Two concurrent cancellations of the SAME sale: the conditional
+      // status transition inside the transaction must let exactly one win.
+      const [c1, c2] = await Promise.allSettled([
+        saleService.cancelSale(sale.id),
+        saleService.cancelSale(sale.id),
+      ]);
+      const successes = [c1, c2].filter((r) => r.status === 'fulfilled').length;
+      const rejections = [c1, c2].filter((r) => r.status === 'rejected');
+      assert(successes === 1, `exactly one concurrent cancel succeeds (got ${successes})`);
+      assert(
+        rejections.length === 1 && /Only completed sales can be cancelled/.test(rejections[0].reason.message),
+        `losing cancel rejected with cancellation-policy error (got: ${rejections[0] && rejections[0].reason.message})`
+      );
+
+      const finalSale = await prisma.sale.findUnique({ where: { id: sale.id } });
+      assert(finalSale.status === 'cancelled', `sale ends cancelled (got ${finalSale.status})`);
+      const finalStock = await prisma.stock.findUnique({ where: { productId: p.id } });
+      assert(
+        finalStock.quantityBottles === 30,
+        `stock restored exactly once: 24 + 6 = 30 (got ${finalStock.quantityBottles})`
+      );
+      assertInvariant(finalStock, 12, 'invariant holds after concurrent double-cancel');
+    }
+
+    // ============================================================
+    console.log('\n--- 14. Concurrent cancel + new sale on the same product ---');
+    {
+      const p = await makeProduct(12, 24, 2);
+      const saleA = await saleService.completeSale({
+        soldById: user.id,
+        items: [{ productId: p.id, quantityBottles: 4 }],
+      });
+      // stock now 20
+      // Cancel saleA concurrently with a NEW saleB of 5 bottles.
+      const [, saleB] = await Promise.all([
+        saleService.cancelSale(saleA.id),
+        saleService.completeSale({
+          soldById: user.id,
+          items: [{ productId: p.id, quantityBottles: 5 }],
+        }),
+      ]);
+      assert(saleB.status === 'completed', 'concurrent new sale completed');
+      const finalStock = await prisma.stock.findUnique({ where: { productId: p.id } });
+      // 24 - 4 (saleA) + 4 (cancelA) - 5 (saleB) = 19, regardless of order.
+      assert(finalStock.quantityBottles === 19, `24 -4 +4 -5 = 19 bottles (got ${finalStock.quantityBottles})`);
+      assertInvariant(finalStock, 12, 'invariant holds after concurrent cancel + sale');
     }
 
     // ============================================================

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import type { Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -51,8 +51,8 @@ export default function StockReceive() {
   const {
     register,
     handleSubmit,
-    watch,
     setValue,
+    control,
     formState: { errors },
   } = useForm<ReceiveFormData>({
     // z.preprocess widens the zod input type to unknown; output type is correct
@@ -66,14 +66,19 @@ export default function StockReceive() {
     },
   });
 
-  const selectedId = watch('productId');
+  // useWatch subscribes to the field value (data, not an unstable function
+  // like watch()), so React Compiler can memoize this component.
+  const selectedId = useWatch({ control, name: 'productId' });
   const selectedProduct = activeProducts.find((p) => p.id === Number(selectedId));
 
+  // Preselect the product from the URL param once. Uses the subscribed
+  // `selectedId` value (not the unstable watch() function) so the effect
+  // has stable dependencies and React Compiler can memoize this component.
   useEffect(() => {
-    if (productIdParam && !watch('productId')) {
+    if (productIdParam && !selectedId) {
       setValue('productId', Number(productIdParam));
     }
-  }, [productIdParam, setValue, watch]);
+  }, [productIdParam, selectedId, setValue]);
 
   const onSubmit = async (data: ReceiveFormData) => {
     try {

@@ -134,6 +134,12 @@ class SaleService {
     // - Restocking happens atomically with status change
     // - Only ADMIN can cancel (enforced at route level)
     // K7: Restock updates both bottles and crates
+    // Concurrency fix (2026-10): the status transition is a CONDITIONAL
+    // updateMany ({ id, status: 'completed' }) executed FIRST inside the
+    // transaction, so the sale row is locked before any stock is restocked.
+    // A second concurrent cancel blocks on that row lock, then sees
+    // status='cancelled', matches 0 rows, throws, and its transaction
+    // rolls back — stock can never be restored twice.
     try {
       const sale = await saleRepository.findByIdWithItems(id);
       if (!sale) {
@@ -143,9 +149,21 @@ class SaleService {
         throw new ValidationError(`Only completed sales can be cancelled (current status: ${sale.status})`);
       }
 
-      // Atomic: update sale status to cancelled AND restock all items
+      // Atomic: conditional status change AND restock all items
       await prisma.$transaction(
         async (tx) => {
+          // Conditional transition: exactly one concurrent canceller can
+          // flip completed -> cancelled; everyone else matches 0 rows.
+          const flipped = await tx.sale.updateMany({
+            where: { id, status: 'completed' },
+            data: { status: 'cancelled' },
+          });
+          if (flipped.count !== 1) {
+            throw new ValidationError(
+              `Only completed sales can be cancelled (current status: cancelled or modified concurrently)`
+            );
+          }
+
           // Restock each product
           for (const item of sale.items) {
             const product = await productRepository.findById(item.productId);
@@ -157,12 +175,6 @@ class SaleService {
               tx
             );
           }
-
-          // Update sale status
-          await tx.sale.update({
-            where: { id },
-            data: { status: 'cancelled' },
-          });
         },
         { timeout: 60000 }
       );

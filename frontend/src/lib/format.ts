@@ -13,13 +13,24 @@ export function formatCurrency(amount: number | string): string {
 // browser's zone and not the UTC calendar.
 export const BUSINESS_TZ = 'Africa/Douala';
 
-export function businessToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
+// Build 'YYYY-MM-DD' explicitly from Intl formatToParts with zero-padding,
+// so the string shape never depends on a locale's default output format.
+function businessIsoDate(date: Date): string {
+  const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone: BUSINESS_TZ,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(new Date());
+  });
+  const parts: Record<string, string> = {};
+  for (const { type, value } of dtf.formatToParts(date)) {
+    parts[type] = value;
+  }
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function businessToday(): string {
+  return businessIsoDate(new Date());
 }
 
 export function businessDaysAgo(days: number): string {

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
@@ -40,7 +40,7 @@ export default function ProductForm() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     formState: { errors, isSubmitting: isFormSubmitting },
     reset,
   } = useForm<ProductFormData>({
@@ -54,8 +54,10 @@ export default function ProductForm() {
     },
   });
 
-  // Populate form when editing
-  const unitPriceInput = watch('unitPrice');
+  // useWatch subscribes to field values (returns data, not an unstable
+  // function like watch()), so React Compiler can memoize this component
+  // and the preview never renders stale values.
+  const formValues = useWatch({ control });
 
   // Initialize form with product data when editing (in an effect, not during render)
   useEffect(() => {
@@ -244,27 +246,27 @@ export default function ProductForm() {
           <div className="bg-gray-50 rounded-lg p-4 space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-500">Name</span>
-              <span className="font-medium">{watch('name') || '—'}</span>
+              <span className="font-medium">{formValues.name || '—'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Category</span>
-              <span className="font-medium">{watch('category') || '—'}</span>
+              <span className="font-medium">{formValues.category || '—'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Unit Price</span>
               <span className="font-medium">
-                {unitPriceInput
-                  ? new Intl.NumberFormat('en-CM', { style: 'currency', currency: 'XAF', minimumFractionDigits: 0 }).format(unitPriceInput)
+                {formValues.unitPrice
+                  ? new Intl.NumberFormat('en-CM', { style: 'currency', currency: 'XAF', minimumFractionDigits: 0 }).format(formValues.unitPrice)
                   : '—'}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Crate Size</span>
-              <span className="font-medium">{watch('crateSize') ? `${watch('crateSize')} bottles` : 'Not set'}</span>
+              <span className="font-medium">{formValues.crateSize ? `${formValues.crateSize} bottles` : 'Not set'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Reorder Level</span>
-              <span className="font-medium">{watch('reorderLevel') ? `${watch('reorderLevel')} bottles` : 'Not set'}</span>
+              <span className="font-medium">{formValues.reorderLevel ? `${formValues.reorderLevel} bottles` : 'Not set'}</span>
             </div>
           </div>
         </div>

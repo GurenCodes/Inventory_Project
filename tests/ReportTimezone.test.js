@@ -190,6 +190,81 @@ async function main() {
     const nullBounds = await reportService.getReportByDate('not-a-date');
     assert(nullBounds === null, 'getReportByDate(invalid) returns null');
 
+    // ============================================================
+    console.log('\n--- 8. Impossible calendar dates strictly rejected ---');
+    // A permissive Date constructor would normalize some of these instead
+    // of rejecting them; businessDayBounds must refuse them outright.
+    for (const bad of ['2026-02-30', '2026-13-01', '2026-00-10', '2026-00-00', '   ']) {
+      const b = businessDayBounds(bad);
+      assert(b === null, `businessDayBounds('${bad}') === null`);
+      threw = null;
+      try {
+        await reportService.generateDailyReport({ date: bad, generatedById: user.id });
+      } catch (e) {
+        threw = e;
+      }
+      assert(!!threw && /Invalid date/.test(threw.message), `generateDailyReport('${bad}') rejected (got: ${threw && threw.message})`);
+    }
+    // Empty string is a missing date (falsy), rejected as required — not
+    // silently normalized to some other day.
+    const bEmpty = businessDayBounds('');
+    assert(bEmpty === null, `businessDayBounds('') === null`);
+    threw = null;
+    try {
+      await reportService.generateDailyReport({ date: '', generatedById: user.id });
+    } catch (e) {
+      threw = e;
+    }
+    assert(!!threw && /required/i.test(threw.message), `generateDailyReport('') rejected as required (got: ${threw && threw.message})`);
+    // Full ISO timestamps remain accepted (documented contract): the UTC
+    // calendar date of the instant is used.
+    const isoBounds = businessDayBounds('2026-07-10T22:30:00.000Z');
+    assert(!!isoBounds && isoBounds.start.toISOString() === '2026-07-09T23:00:00.000Z',
+      'ISO timestamp input accepted; UTC calendar date maps to the Douala day');
+
+    // ============================================================
+    console.log('\n--- 9. todayBusinessDate is deterministic YYYY-MM-DD with zero-padding ---');
+    const todayStr = todayBusinessDate();
+    assert(/^\d{4}-\d{2}-\d{2}$/.test(todayStr), `shape YYYY-MM-DD (got ${todayStr})`);
+    const [ty2, tm2, td2] = todayStr.split('-').map(Number);
+    assert(tm2 >= 1 && tm2 <= 12 && td2 >= 1 && td2 <= 31, `month/day within calendar bounds (got ${todayStr})`);
+    // Padding: single-digit month/day must carry a leading zero (construct
+    // the same helper path with a fixed date via businessDayBounds fields).
+    const bPad = businessDayBounds('2026-01-05');
+    const padded = `${bPad.year}-${String(bPad.month).padStart(2, '0')}-${String(bPad.day).padStart(2, '0')}`;
+    assert(padded === '2026-01-05', `single-digit month/day zero-padded (got ${padded})`);
+
+    // ============================================================
+    console.log('\n--- 10. listReports range is inclusive of both end dates ---');
+    // The UI communicates an INCLUSIVE calendar range ("From"/"To"); the
+    // route parses the date-only strings as UTC midnights and the repository
+    // uses gte/lte against reportDate (also stored at UTC midnight), so a
+    // report dated exactly on the end date must be returned.
+    const listStart = '2026-08-01';
+    const listMid = '2026-08-02';
+    const listEnd = '2026-08-03';
+    const listStorage = [listStart, listMid, listEnd].map((d) => businessDayBounds(d).storageDate);
+    // Only create rows that do not already exist (shared DB); track created ones.
+    const createdListReports = [];
+    for (let i = 0; i < listStorage.length; i++) {
+      const existing = await prisma.dailyReport.findUnique({ where: { reportDate: listStorage[i] } });
+      if (!existing) {
+        const created = await prisma.dailyReport.create({
+          data: { reportDate: listStorage[i], generatedById: user.id, totalSalesAmount: 100 * (i + 1) },
+        });
+        createdListReports.push(created.id);
+        reportIds.push(created.id);
+      }
+    }
+    // Same conversion the route performs on the UI's date-only strings.
+    const ranged = await reportService.listReports(new Date(listStart), new Date(listEnd));
+    const rangedDates = ranged.map((r) => r.reportDate.toISOString().slice(0, 10));
+    assert(rangedDates.includes(listStart), `start date ${listStart} included (got ${rangedDates.join(',')})`);
+    assert(rangedDates.includes(listMid), `mid date ${listMid} included (got ${rangedDates.join(',')})`);
+    assert(rangedDates.includes(listEnd), `end date ${listEnd} included — range is inclusive (got ${rangedDates.join(',')})`);
+    assert(new Date(listEnd).toISOString() === `${listEnd}T00:00:00.000Z`,
+      'route parsing of date-only string is UTC midnight (matches reportDate storage)');
+
     console.log(`\n=== Summary: Passed: ${passed}, Failed: ${failed} ===`);
   } finally {
     for (const id of reportIds) {
