@@ -16,7 +16,7 @@ const productSchema = z.object({
   name: z.string().min(1, 'Product name is required').max(255, 'Name too long'),
   category: z.string().optional().nullable(),
   unitPrice: z.number().positive('Unit price must be positive'),
-  crateSize: z.number().positive('Crate size must be positive').optional().nullable(),
+  crateSize: z.number().int('Crate size must be a whole number').positive('Crate size must be positive').optional().nullable(),
   reorderLevel: z.number().min(0, 'Reorder level must be non-negative').optional().nullable(),
 });
 

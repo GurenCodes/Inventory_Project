@@ -5,6 +5,26 @@ const productRepository = require('../Repository/Product');
 const stockRepository = require('../Repository/Stock');
 const { ValidationError, NotFoundError } = require('../../errors');
 
+// PostgreSQL INTEGER (signed 32-bit) upper bound — values above this are
+// rejected with a 400 instead of surfacing as a Prisma 500.
+const MAX_CRATE_SIZE = 2147483647;
+
+// K12: crateSize must be a positive whole number of bottles, or null/omitted
+// for bottles-only products. Number.isInteger rejects fractional values,
+// NaN, and ±Infinity; the explicit typeof check rejects numeric strings and
+// other coerced types before any implicit conversion can sneak through.
+function assertValidCrateSize(crateSize) {
+  if (crateSize === undefined || crateSize === null) return; // bottles-only
+  if (
+    typeof crateSize !== 'number' ||
+    !Number.isInteger(crateSize) ||
+    crateSize <= 0 ||
+    crateSize > MAX_CRATE_SIZE
+  ) {
+    throw new ValidationError('Crate size must be a positive whole number of bottles');
+  }
+}
+
 class ProductService {
   // Creates a Product AND its matching Stock row in one step.
   // Your schema requires every Product to eventually have a Stock row,
@@ -19,11 +39,7 @@ class ProductService {
     if (typeof unitPrice !== 'number' || unitPrice <= 0) {
       throw new ValidationError('Unit price must be a positive number');
     }
-    if (crateSize !== undefined && crateSize !== null) {
-      if (typeof crateSize !== 'number' || crateSize <= 0) {
-        throw new ValidationError('Crate size must be a positive number');
-      }
-    }
+    assertValidCrateSize(crateSize);
     if (reorderLevel !== undefined && reorderLevel !== null) {
       if (typeof reorderLevel !== 'number' || reorderLevel < 0) {
         throw new ValidationError('Reorder level must be a non-negative number');
@@ -64,11 +80,8 @@ class ProductService {
         throw new ValidationError('Unit price must be a positive number');
       }
     }
-    if (productFields.crateSize !== undefined && productFields.crateSize !== null) {
-      if (typeof productFields.crateSize !== 'number' || productFields.crateSize <= 0) {
-        throw new ValidationError('Crate size must be a positive number');
-      }
-    }
+    // undefined (omitted) = leave unchanged; null = clear (bottles-only).
+    assertValidCrateSize(productFields.crateSize);
     if (productFields.name !== undefined) {
       if (typeof productFields.name !== 'string' || productFields.name.trim() === '') {
         throw new ValidationError('Product name cannot be empty');

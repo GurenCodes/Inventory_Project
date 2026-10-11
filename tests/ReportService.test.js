@@ -72,6 +72,24 @@ async function createTestProduct(overrides = {}) {
   return product;
 }
 
+// K15: the suite previously deleted EVERY sale in a UTC window to make totals
+// deterministic — destructive on the shared Aiven database. Instead, capture
+// the pre-existing completed-sales total and assert additively
+// (baseline + own sales). Only rows this suite created are ever deleted.
+async function baselineCompletedSum(start, end) {
+  const agg = await prisma.sale.aggregate({
+    _sum: { totalAmount: true },
+    where: { status: 'completed', createdAt: { gte: start, lt: end } },
+  });
+  return Number(agg._sum.totalAmount || 0);
+}
+
+async function deleteSalesByIds(ids) {
+  if (!ids.length) return;
+  await prisma.saleItem.deleteMany({ where: { saleId: { in: ids } } });
+  await prisma.sale.deleteMany({ where: { id: { in: ids } } });
+}
+
 async function runTests() {
   console.log('\n========== ReportService Tests ==========\n');
   const results = {};
@@ -81,10 +99,10 @@ async function runTests() {
     testProduct = await createTestProduct();
     testUser = await createTestUser();
   } catch (e) {
-    console.log('Setup failed:', e.message);
-    await cleanup();
+    console.error('❌ Setup failed:', e.message);
+    await cleanup().catch(() => {});
     await prisma.$disconnect();
-    return;
+    process.exit(1);
   }
 
   // ========== generateDailyReport ==========
@@ -100,15 +118,18 @@ async function runTests() {
 
   // Use a fixed past date that doesn't exist in DB
   const testDate = new Date('2026-07-01T00:00:00.000Z');
+  const testDateEnd = new Date(testDate.getTime() + 86400000);
 
-  // Valid input - use testDate (clean up any existing report and sales first)
+  // Valid input - use testDate. Only the dailyReport row for this exact past
+  // date is cleared (the unique reportDate constraint requires it); sales are
+  // NOT wiped — the expected total is computed as baseline + own sales.
   await prisma.dailyReport.deleteMany({ where: { reportDate: testDate } });
-  await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate, lt: new Date(testDate.getTime() + 86400000) } } } });
-  await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate, lt: new Date(testDate.getTime() + 86400000) } } });
+  const baseline1 = await baselineCompletedSum(testDate, testDateEnd);
 
   // Create test sales for testDate
+  const testDateSaleIds = [];
   try {
-    await prisma.sale.create({
+    const s1 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 5000,
@@ -124,20 +145,23 @@ async function runTests() {
         },
       },
     });
+    testDateSaleIds.push(s1.id);
     const pendingSale = await prisma.sale.create({
       data: { soldById: testUser.id, totalAmount: 1000, status: 'pending', createdAt: testDate },
     });
+    testDateSaleIds.push(pendingSale.id);
     await prisma.saleItem.create({
       data: { saleId: pendingSale.id, productId: testProduct.id, quantityBottles: 2, unitPrice: 500, lineTotal: 1000 },
     });
     const cancelledSale = await prisma.sale.create({
       data: { soldById: testUser.id, totalAmount: 500, status: 'cancelled', createdAt: testDate },
     });
+    testDateSaleIds.push(cancelledSale.id);
     await prisma.saleItem.create({
       data: { saleId: cancelledSale.id, productId: testProduct.id, quantityBottles: 1, unitPrice: 500, lineTotal: 500 },
     });
   } catch (e) {
-    console.log('Setup sales failed:', e.message);
+    console.error('❌ Setup sales failed:', e.message);
   }
 
   try {
@@ -145,14 +169,17 @@ async function runTests() {
       date: testDate,
       generatedById: testUser.id,
     });
-    if (res && res.id && Number(res.totalSalesAmount) === 5000) {
+    const expected = baseline1 + 5000;
+    if (res && res.id && Number(res.totalSalesAmount) === expected) {
       results.generateDailyReport.validInput = true;
-      console.log('✅ Valid input: PASS - Report generated with correct total');
+      console.log(`✅ Valid input: PASS - Report total ${expected} = pre-existing ${baseline1} + own completed 5000`);
     } else {
-      console.log('❌ Valid input: FAIL - Report:', res);
+      console.log(`❌ Valid input: FAIL - Expected ${expected}, got ${res && res.totalSalesAmount}`);
     }
   } catch (e) {
     console.log('❌ Valid input: FAIL -', e.message);
+  } finally {
+    await deleteSalesByIds(testDateSaleIds);
   }
 
   // Missing required fields
@@ -232,16 +259,16 @@ async function runTests() {
   }
 
   // Business rule: only sums completed sales, not pending or cancelled
-  // Use a unique date
+  // Use a unique date; no window wipe — additive baseline instead.
   const yesterday = new Date('2026-07-03T00:00:00.000Z');
+  const yesterdayEnd = new Date(yesterday.getTime() + 86400000);
   await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
-  await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } } });
-  await prisma.sale.deleteMany({ where: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } });
+  const baselineYesterday = await baselineCompletedSum(yesterday, yesterdayEnd);
 
   const testProductYesterday = await createTestProduct();
-  let yesterdaySalesCreated = false;
+  const yesterdaySaleIds = [];
   try {
-    await prisma.sale.create({
+    const ys1 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 5000,
@@ -250,7 +277,8 @@ async function runTests() {
         items: { create: { productId: testProductYesterday.id, quantityBottles: 10, unitPrice: 500, lineTotal: 5000 } }
       }
     });
-    await prisma.sale.create({
+    yesterdaySaleIds.push(ys1.id);
+    const ys2 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 1000,
@@ -259,7 +287,8 @@ async function runTests() {
         items: { create: { productId: testProductYesterday.id, quantityBottles: 2, unitPrice: 500, lineTotal: 1000 } }
       }
     });
-    await prisma.sale.create({
+    yesterdaySaleIds.push(ys2.id);
+    const ys3 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 500,
@@ -268,39 +297,37 @@ async function runTests() {
         items: { create: { productId: testProductYesterday.id, quantityBottles: 1, unitPrice: 500, lineTotal: 500 } }
       }
     });
-    yesterdaySalesCreated = true;
+    yesterdaySaleIds.push(ys3.id);
 
     const res = await reportService.generateDailyReport({
       date: yesterday,
       generatedById: testUser.id,
     });
-    if (Number(res.totalSalesAmount) === 5000) {
+    const expectedYesterday = baselineYesterday + 5000;
+    if (Number(res.totalSalesAmount) === expectedYesterday) {
       results.generateDailyReport.businessRules = true;
-      console.log('✅ Business rule (only completed): PASS - Total is 5000 (only completed)');
+      console.log(`✅ Business rule (only completed): PASS - Total ${expectedYesterday} = baseline ${baselineYesterday} + own completed 5000 (pending/cancelled excluded)`);
     } else {
-      console.log('❌ Business rule: FAIL - Total is', res.totalSalesAmount, 'expected 5000');
+      console.log('❌ Business rule: FAIL - Total is', res.totalSalesAmount, 'expected', expectedYesterday);
     }
   } catch (e) {
     console.log('❌ Business rule: FAIL -', e.message);
   } finally {
-    if (yesterdaySalesCreated) {
-      await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
-      await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } } });
-      await prisma.sale.deleteMany({ where: { createdAt: { gte: yesterday, lt: new Date(yesterday.getTime() + 86400000) } } });
-    }
+    await prisma.dailyReport.deleteMany({ where: { reportDate: yesterday } });
+    await deleteSalesByIds(yesterdaySaleIds);
   }
 
   // REGRESSION TEST: Problem 2 - "completed only" verified by direct DB query
   console.log('\n--- REGRESSION: Problem 2 (completed only, DB verified) ---');
   const testDate2 = new Date('2026-07-04T00:00:00.000Z');
+  const testDate2End = new Date(testDate2.getTime() + 86400000);
   await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
-  await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } } });
-  await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } });
+  const baseline2 = await baselineCompletedSum(testDate2, testDate2End);
 
   const testProduct2 = await createTestProduct();
-  let testDate2SalesCreated = false;
+  const testDate2SaleIds = [];
   try {
-    await prisma.sale.create({
+    const d1 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 500,
@@ -309,7 +336,8 @@ async function runTests() {
         items: { create: { productId: testProduct2.id, quantityBottles: 5, unitPrice: 100, lineTotal: 500 } }
       }
     });
-    await prisma.sale.create({
+    testDate2SaleIds.push(d1.id);
+    const d2 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 2000,
@@ -318,7 +346,8 @@ async function runTests() {
         items: { create: { productId: testProduct2.id, quantityBottles: 20, unitPrice: 100, lineTotal: 2000 } }
       }
     });
-    await prisma.sale.create({
+    testDate2SaleIds.push(d2.id);
+    const d3 = await prisma.sale.create({
       data: {
         soldById: testUser.id,
         totalAmount: 1000,
@@ -327,36 +356,34 @@ async function runTests() {
         items: { create: { productId: testProduct2.id, quantityBottles: 10, unitPrice: 100, lineTotal: 1000 } }
       }
     });
-    testDate2SalesCreated = true;
+    testDate2SaleIds.push(d3.id);
 
     const sales = await prisma.sale.findMany({
-      where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } },
+      where: { createdAt: { gte: testDate2, lt: testDate2End } },
       include: { items: true }
     });
     const completedSales = sales.filter(s => s.status === 'completed');
     const totalCompleted = completedSales.reduce((sum, s) => sum + Number(s.totalAmount), 0);
+    const expected2 = baseline2 + 500;
 
-    if (totalCompleted === 500) {
-      console.log('✅ Problem 2 fix (DB verified): PASS - Only completed sales summed (500), not pending/cancelled');
+    if (totalCompleted === expected2) {
+      console.log(`✅ Problem 2 fix (DB verified): PASS - Completed sum ${expected2} = baseline ${baseline2} + own 500 (pending/cancelled excluded)`);
     } else {
-      console.log('❌ Problem 2 fix: FAIL - DB sum is', totalCompleted, 'expected 500');
+      console.log('❌ Problem 2 fix: FAIL - DB sum is', totalCompleted, 'expected', expected2);
     }
 
     await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
     const res2 = await reportService.generateDailyReport({ date: testDate2, generatedById: testUser.id });
-    if (Number(res2.totalSalesAmount) === 500) {
-      console.log('✅ Problem 2 fix (API verified): PASS - Report totalSalesAmount = 500 (completed only)');
+    if (Number(res2.totalSalesAmount) === expected2) {
+      console.log(`✅ Problem 2 fix (API verified): PASS - Report total ${expected2} (completed only)`);
     } else {
-      console.log('❌ Problem 2 fix: FAIL - Report total =', res2.totalSalesAmount);
+      console.log('❌ Problem 2 fix: FAIL - Report total =', res2.totalSalesAmount, 'expected', expected2);
     }
   } catch (e) {
     console.log('❌ Problem 2 fix: FAIL -', e.message);
   } finally {
-    if (testDate2SalesCreated) {
-      await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
-      await prisma.saleItem.deleteMany({ where: { sale: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } } });
-      await prisma.sale.deleteMany({ where: { createdAt: { gte: testDate2, lt: new Date(testDate2.getTime() + 86400000) } } });
-    }
+    await prisma.dailyReport.deleteMany({ where: { reportDate: testDate2 } });
+    await deleteSalesByIds(testDate2SaleIds);
   }
 
   // Business rule: unique reportDate - duplicate should fail
@@ -510,6 +537,10 @@ async function runTests() {
       if (val === 'N/A') {
         console.log(`  ${check}: ➖ N/A`);
       } else if (Array.isArray(val)) {
+        if (val.length === 0) {
+          console.log(`  ${check}: ➖ no checks recorded`);
+          continue;
+        }
         const allPass = val.every(v => v.passed === true);
         console.log(`  ${check}: ${allPass ? '✅ PASS' : '❌ FAIL'}`);
         val.forEach(v => console.log(`    - ${v.field || v.test}: ${v.passed ? '✅' : '❌'}`));
@@ -526,7 +557,8 @@ async function runTests() {
 }
 
 runTests().catch(async (e) => {
-  console.error('Test runner crashed:', e);
-  await cleanup();
+  console.error('❌ Test runner crashed:', e);
+  await cleanup().catch(() => {});
   await prisma.$disconnect();
+  process.exit(1);
 });

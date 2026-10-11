@@ -68,7 +68,9 @@ async function runTests() {
     testUser = await prisma.user.findFirst();
     if (!testUser) throw new Error('No user found');
   } catch (e) {
-    console.log('Setup failed:', e.message);
+    console.error('❌ Setup failed:', e.message);
+    await prisma.$disconnect().catch(() => {});
+    process.exit(1);
   }
 
   // Valid input - single item (no unitPrice provided - read from Product.server-side)
@@ -100,9 +102,11 @@ async function runTests() {
         { productId: testProduct2.id, quantityBottles: 2 },
       ],
     });
-    if (res && res.items && res.items.length === 2) {
-      console.log('✅ Valid input (multiple items): PASS');
-    }
+      if (res && res.items && res.items.length === 2) {
+        console.log('✅ Valid input (multiple items): PASS');
+      } else {
+        console.log(`❌ Valid input (multiple items): FAIL - items=${res && res.items && res.items.length}`);
+      }
     await prisma.saleItem.deleteMany({ where: { saleId: res.id } });
     await prisma.sale.delete({ where: { id: res.id } });
     await stockRepository.updateByProductId(testProduct.id, { quantityBottles: 100 });
@@ -550,6 +554,10 @@ async function runTests() {
       if (val === 'N/A') {
         console.log(`  ${check}: ➖ N/A`);
       } else if (Array.isArray(val)) {
+        if (val.length === 0) {
+          console.log(`  ${check}: ➖ no checks recorded`);
+          continue;
+        }
         const allPass = val.every(v => v.passed === true);
         console.log(`  ${check}: ${allPass ? '✅ PASS' : '❌ FAIL'}`);
         val.forEach(v => console.log(`    - ${v.field || v.test}: ${v.passed ? '✅' : '❌'}`));
@@ -565,4 +573,8 @@ async function runTests() {
   return results;
 }
 
-runTests().catch(console.error);
+runTests().catch(async (e) => {
+  console.error('❌ Test runner crashed:', e);
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+});

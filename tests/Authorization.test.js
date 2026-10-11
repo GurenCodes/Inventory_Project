@@ -57,10 +57,10 @@ async function runTests() {
     adminToken = generateToken(adminUser.id, 'ADMIN');
     managerToken = generateToken(managerUser.id, 'MANAGER');
   } catch (e) {
-    console.log('Setup failed:', e.message);
-    await cleanup();
+    console.error('❌ Setup failed:', e.message);
+    await cleanup().catch(() => {});
     await prisma.$disconnect();
-    return;
+    process.exit(1);
   }
 
   // Create test resources
@@ -125,10 +125,10 @@ async function runTests() {
       data: { quantityBottles: { decrement: 10 } },
     });
   } catch (e) {
-    console.log('Setup failed:', e.message);
-    await cleanup();
+    console.error('❌ Setup failed:', e.message);
+    await cleanup().catch(() => {});
     await prisma.$disconnect();
-    return;
+    process.exit(1);
   }
 
   // ========== Test: Unauthenticated requests ==========
@@ -641,11 +641,13 @@ async function runTests() {
   console.log(totalFailed === 0 ? '\n✅ ALL AUTHORIZATION TESTS PASSED' : '\n❌ SOME AUTHORIZATION TESTS FAILED');
 
   await prisma.$disconnect();
-  return results;
+  if (totalFailed > 0) process.exit(1);
+  process.exit(0);
 }
 
 runTests().catch(async (e) => {
-  console.error('Test runner crashed:', e);
-  await cleanup();
+  console.error('❌ Test runner crashed:', e);
+  await cleanup().catch(() => {});
   await prisma.$disconnect();
+  process.exit(1);
 });

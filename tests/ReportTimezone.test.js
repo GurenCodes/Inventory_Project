@@ -63,6 +63,16 @@ async function main() {
     return s;
   }
 
+  // K15: pre-existing completed total for a UTC window, so exact-total
+  // assertions can be additive instead of requiring an empty shared DB.
+  async function completedSumBetween(start, end) {
+    const agg = await prisma.sale.aggregate({
+      _sum: { totalAmount: true },
+      where: { status: 'completed', createdAt: { gte: start, lt: end } },
+    });
+    return Number(agg._sum.totalAmount || 0);
+  }
+
   try {
     // ============================================================
     console.log('--- 1. businessDayBounds math (Africa/Douala = UTC+1) ---');
@@ -84,7 +94,13 @@ async function main() {
     // ============================================================
     console.log('\n--- 2. Boundary sales around local midnight (2026-07-10 Douala day) ---');
     const day = '2026-07-10';
-    await prisma.dailyReport.deleteMany({ where: { reportDate: businessDayBounds(day).storageDate } });
+    const dayBounds = businessDayBounds(day);
+    await prisma.dailyReport.deleteMany({ where: { reportDate: dayBounds.storageDate } });
+    // K15: never wipe sales to make totals deterministic — capture any
+    // pre-existing completed total for each affected Douala day first.
+    const baseJul10 = await completedSumBetween(dayBounds.start, dayBounds.end);
+    const nextBounds = businessDayBounds('2026-07-11');
+    const baseJul11 = await completedSumBetween(nextBounds.start, nextBounds.end);
 
     // 22:30Z on Jul 10 = 23:30 local Jul 10 -> INSIDE the business day
     await makeSale('2026-07-10T22:30:00.000Z', 'completed', 1000);
@@ -99,31 +115,36 @@ async function main() {
 
     const report = await reportService.generateDailyReport({ date: day, generatedById: user.id });
     reportIds.push(report.id);
-    assert(Number(report.totalSalesAmount) === 3000,
-      `Jul 10 total = 1000 + 2000 = 3000, boundary 23:00Z excluded, cancelled/pending excluded (got ${report.totalSalesAmount})`);
+    const expectedJul10 = baseJul10 + 3000;
+    assert(Number(report.totalSalesAmount) === expectedJul10,
+      `Jul 10 total = baseline ${baseJul10} + 1000 + 2000 = ${expectedJul10}, boundary 23:00Z excluded, cancelled/pending excluded (got ${report.totalSalesAmount})`);
     assert(report.reportDate.toISOString() === '2026-07-10T00:00:00.000Z',
       `reportDate stored at UTC midnight of the calendar date (got ${report.reportDate.toISOString()})`);
 
     // ============================================================
     console.log('\n--- 3. The 23:00Z sale belongs to the NEXT business day ---');
     const nextDay = '2026-07-11';
-    await prisma.dailyReport.deleteMany({ where: { reportDate: businessDayBounds(nextDay).storageDate } });
+    await prisma.dailyReport.deleteMany({ where: { reportDate: nextBounds.storageDate } });
     const nextReport = await reportService.generateDailyReport({ date: nextDay, generatedById: user.id });
     reportIds.push(nextReport.id);
-    assert(Number(nextReport.totalSalesAmount) === 4000,
-      `Jul 11 total = 4000 (the exact-next-day-start sale only) (got ${nextReport.totalSalesAmount})`);
+    const expectedJul11 = baseJul11 + 4000;
+    assert(Number(nextReport.totalSalesAmount) === expectedJul11,
+      `Jul 11 total = baseline ${baseJul11} + 4000 (the exact-next-day-start sale only) = ${expectedJul11} (got ${nextReport.totalSalesAmount})`);
 
     // ============================================================
     console.log('\n--- 4. Date-only string input matches Date input ---');
     const strDay = '2026-07-09';
-    await prisma.dailyReport.deleteMany({ where: { reportDate: businessDayBounds(strDay).storageDate } });
+    const strBounds = businessDayBounds(strDay);
+    await prisma.dailyReport.deleteMany({ where: { reportDate: strBounds.storageDate } });
+    const baseJul9 = await completedSumBetween(strBounds.start, strBounds.end);
     await makeSale('2026-07-09T10:00:00.000Z', 'completed', 500);
     // A sale at 2026-07-08T23:30Z is local Jul 9 00:30 -> belongs to Jul 9
     await makeSale('2026-07-08T23:30:00.000Z', 'completed', 700);
     const strReport = await reportService.generateDailyReport({ date: strDay, generatedById: user.id });
     reportIds.push(strReport.id);
-    assert(Number(strReport.totalSalesAmount) === 1200,
-      `"${strDay}" includes sales from the previous UTC evening (local after midnight) (got ${strReport.totalSalesAmount})`);
+    const expectedJul9 = baseJul9 + 1200;
+    assert(Number(strReport.totalSalesAmount) === expectedJul9,
+      `"${strDay}" includes sales from the previous UTC evening (local after midnight); baseline ${baseJul9} + own 1200 = ${expectedJul9} (got ${strReport.totalSalesAmount})`);
 
     // ============================================================
     console.log('\n--- 5. Generation and retrieval agree ---');
@@ -284,7 +305,7 @@ async function main() {
 }
 
 main().catch(async (e) => {
-  console.error('ReportTimezone suite crashed:', e);
+  console.error('❌ ReportTimezone suite crashed:', e);
   await prisma.$disconnect().catch(() => {});
   process.exit(1);
 });

@@ -302,6 +302,10 @@ async function runTests() {
       if (val === 'N/A') {
         console.log(`  ${check}: ➖ N/A`);
       } else if (Array.isArray(val)) {
+        if (val.length === 0) {
+          console.log(`  ${check}: ➖ no checks recorded`);
+          continue;
+        }
         const allPass = val.every(v => v.passed === true);
         console.log(`  ${check}: ${allPass ? '✅ PASS' : '❌ FAIL'}`);
         val.forEach(v => console.log(`    - ${v.field || v.test}: ${v.passed ? '✅' : '❌'}`));
@@ -317,4 +321,8 @@ async function runTests() {
   return results;
 }
 
-runTests().catch(console.error);
+runTests().catch(async (e) => {
+  console.error('❌ Test runner crashed:', e);
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+});

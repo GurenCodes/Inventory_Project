@@ -2,14 +2,19 @@
 // Runs every backend test suite in sequence and exits non-zero if any
 // suite fails. The individual suites print ✅/❌ lines; several of them
 // historically exited 0 regardless of failures, so this runner both
-// checks exit codes AND scans output for failure markers.
+// checks exit codes AND scans output for failure markers
+// (see tests/runner-utils.js; exercised by tests/RunnerSelfTest.test.js).
 //
 // Usage: node tests/run-all.js   (or: npm test)
 
+require('dotenv').config();
+
 const { spawnSync } = require('child_process');
 const path = require('path');
+const { evaluateSuite, assertNotProductionEnv } = require('./runner-utils');
 
 const SUITES = [
+  'RunnerSelfTest.test.js',
   'AuthService.bcrypt.test.js',
   'ProductService.test.js',
   'StockService.test.js',
@@ -23,18 +28,17 @@ const SUITES = [
   'Regression.test.js',
 ];
 
-// Markers that indicate a real failure in suite output.
-// "❌ FAIL" is printed by the service suites on assertion failure;
-// "Total: N passed, M failed" with M > 0 comes from the API suites;
-// "PASS (verified in service tests)" is the removed Stage9Security
-// placeholder — if it ever reappears in output, the suite is failing its
-// duty to assert, so treat it as a failure.
-const FAILURE_PATTERNS = [
-  /❌/,
-  /Total:\s*\d+\s*passed,\s*[1-9]\d*\s*failed/,
-  /Traceback|UnhandledPromiseRejection/,
-  /PASS \(verified in service tests\)/,
-];
+try {
+  assertNotProductionEnv(process.env);
+} catch (e) {
+  console.error(`FATAL: ${e.message}`);
+  process.exit(1);
+}
+
+if (!process.env.DATABASE_URL) {
+  console.error('FATAL: DATABASE_URL is not set (expected in repo-root .env).');
+  process.exit(1);
+}
 
 let failedSuites = [];
 
@@ -48,22 +52,17 @@ for (const suite of SUITES) {
     cwd: path.join(__dirname, '..'),
     encoding: 'utf8',
     timeout: 10 * 60 * 1000, // 10 minutes per suite (Aiven DB latency)
+    // Force NODE_ENV=test for children so a production shell (e.g. a Render
+    // host) cannot leak production cookie/rate-limit behavior into tests.
+    env: { ...process.env, NODE_ENV: 'test' },
   });
 
   const output = `${result.stdout || ''}\n${result.stderr || ''}`;
   process.stdout.write(output);
 
-  // A child that failed to spawn, was killed by the timeout, or exited
-  // non-zero is a failure. result.status is null on timeout/spawn error.
-  const spawnBad = !!result.error || result.status === null;
-  const exitBad = spawnBad || result.status !== 0;
-  const outputBad = FAILURE_PATTERNS.some((p) => p.test(output));
-
-  if (exitBad || outputBad) {
-    const reason = spawnBad
-      ? `spawn/timeout error: ${result.error ? result.error.message : 'killed by timeout'}`
-      : `exit=${result.status}`;
-    console.error(`\n>>> SUITE FAILED: ${suite} (${reason}, failureMarkers=${outputBad})`);
+  const verdict = evaluateSuite(result, output);
+  if (!verdict.ok) {
+    console.error(`\n>>> SUITE FAILED: ${suite} (${verdict.reason}, failureMarkers=${verdict.failureMarkers})`);
     failedSuites.push(suite);
   } else {
     console.log(`\n>>> Suite passed: ${suite}`);

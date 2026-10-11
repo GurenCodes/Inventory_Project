@@ -82,41 +82,14 @@ app.use(helmet({
   xssFilter: true,
 }));
 
-// CORS configuration (Stage 9) - Manual implementation for full control
-// Allowed origins from environment variable, default to localhost for development
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean);
-
-// Manual CORS middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  // Check if origin is allowed
-  const isAllowed = !origin || allowedOrigins.includes(origin);
-  
-  if (isAllowed) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
-    res.header('Access-Control-Max-Age', '86400');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  } else {
-    // Origin not allowed - reject all requests
-    return res.status(403).json({ error: 'Not allowed by CORS' });
-  }
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    if (isAllowed) {
-      return res.sendStatus(204);
-    }
-    return res.status(403).json({ error: 'Not allowed by CORS' });
-  }
-  
-  next();
-});
+// CORS configuration (Stage 9) - Manual implementation for full control.
+// Allowed origins come from the ALLOWED_ORIGINS env var (comma-separated
+// ORIGINS, e.g. "https://app.vercel.app,https://api.example.com").
+// Parsing + middleware live in lib/cors.js (tested in Regression §11);
+// unset/empty falls back to localhost defaults for development.
+const { parseAllowedOrigins, createCorsMiddleware } = require('./lib/cors');
+const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+app.use(createCorsMiddleware(allowedOrigins));
 
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());

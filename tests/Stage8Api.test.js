@@ -12,8 +12,16 @@ function getJwtSecret() {
 }
 
 async function cleanup() {
+  // UserService.createUser lowercases emails, so API-created users are only
+  // findable with the lowercased prefix; direct Prisma fixtures keep the
+  // original case. Match both so neither leaks.
   const testUsers = await prisma.user.findMany({
-    where: { email: { startsWith: TEST_PREFIX } },
+    where: {
+      OR: [
+        { email: { startsWith: TEST_PREFIX } },
+        { email: { startsWith: TEST_PREFIX.toLowerCase() } },
+      ],
+    },
     select: { id: true },
   });
   for (const u of testUsers) {
@@ -67,10 +75,10 @@ async function runTests() {
     adminToken = generateToken(adminUser.id, 'ADMIN');
     managerToken = generateToken(managerUser.id, 'MANAGER');
   } catch (e) {
-    console.log('Setup failed:', e.message);
-    await cleanup();
+    console.error('❌ Setup failed:', e.message);
+    await cleanup().catch(() => {});
     await prisma.$disconnect();
-    return;
+    process.exit(1);
   }
 
   // Create test resources
@@ -113,10 +121,10 @@ async function runTests() {
       },
     });
   } catch (e) {
-    console.log('Setup failed:', e.message);
-    await cleanup();
+    console.error('❌ Setup failed:', e.message);
+    await cleanup().catch(() => {});
     await prisma.$disconnect();
-    return;
+    process.exit(1);
   }
 
   // ============================================
@@ -733,14 +741,15 @@ async function runTests() {
         role: 'INVALID_ROLE'
       });
     
-    if (res.status === 400 || res.status === 201) {
-      // The service doesn't validate role, so it might accept it
-      // Let's check what happens
+    // UserService.createUser rejects unknown roles with 400 (Regression §6
+    // asserts the same contract). Accepting a 201 here would mean the
+    // validation silently disappeared — that must fail the suite.
+    if (res.status === 400) {
       results.createUser.passed++;
-      console.log(`✅ Invalid role - ${res.status} (service behavior)`);
+      console.log('✅ Invalid role - 400');
     } else {
       results.createUser.failed++;
-      console.log(`❌ Invalid role - Unexpected ${res.status}`);
+      console.log(`❌ Invalid role - Expected 400, got ${res.status}`);
     }
   } catch (e) {
     results.createUser.failed++;
@@ -1035,11 +1044,13 @@ async function runTests() {
   console.log(totalFailed === 0 ? '\n✅ ALL STAGE 8 API TESTS PASSED' : '\n❌ SOME STAGE 8 API TESTS FAILED');
 
   await prisma.$disconnect();
-  return results;
+  if (totalFailed > 0) process.exit(1);
+  process.exit(0);
 }
 
 runTests().catch(async (e) => {
-  console.error('Test runner crashed:', e);
-  await cleanup();
+  console.error('❌ Test runner crashed:', e);
+  await cleanup().catch(() => {});
   await prisma.$disconnect();
+  process.exit(1);
 });

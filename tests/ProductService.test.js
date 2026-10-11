@@ -72,13 +72,22 @@ async function runTests() {
     }
   }
 
-  // Invalid values
+  // Invalid values (K12: crateSize must be a positive integer, null, or omitted)
   const invalidTests = [
     { name: 'negativePrice', data: { name: `${TEST_PREFIX}NegPrice`, unitPrice: -100, crateSize: 12 } },
     { name: 'negativeCrateSize', data: { name: `${TEST_PREFIX}NegCrate`, unitPrice: 500, crateSize: -5 } },
     { name: 'zeroUnitPrice', data: { name: `${TEST_PREFIX}ZeroPrice`, unitPrice: 0, crateSize: 12 } },
     { name: 'zeroCrateSize', data: { name: `${TEST_PREFIX}ZeroCrate`, unitPrice: 500, crateSize: 0 } },
     { name: 'negativeReorderLevel', data: { name: `${TEST_PREFIX}NegReorder`, unitPrice: 500, crateSize: 12, reorderLevel: -1 } },
+    { name: 'fractionalCrateSize', data: { name: `${TEST_PREFIX}FracCrate`, unitPrice: 500, crateSize: 12.5 } },
+    { name: 'subOneFractionalCrateSize', data: { name: `${TEST_PREFIX}SubOneCrate`, unitPrice: 500, crateSize: 0.9 } },
+    { name: 'nanCrateSize', data: { name: `${TEST_PREFIX}NaNCrate`, unitPrice: 500, crateSize: NaN } },
+    { name: 'infinityCrateSize', data: { name: `${TEST_PREFIX}InfCrate`, unitPrice: 500, crateSize: Infinity } },
+    { name: 'stringCrateSize', data: { name: `${TEST_PREFIX}StrCrate`, unitPrice: 500, crateSize: '12' } },
+    { name: 'emptyStringCrateSize', data: { name: `${TEST_PREFIX}EmptyStrCrate`, unitPrice: 500, crateSize: '' } },
+    { name: 'booleanCrateSize', data: { name: `${TEST_PREFIX}BoolCrate`, unitPrice: 500, crateSize: true } },
+    { name: 'objectCrateSize', data: { name: `${TEST_PREFIX}ObjCrate`, unitPrice: 500, crateSize: { n: 12 } } },
+    { name: 'int4OverflowCrateSize', data: { name: `${TEST_PREFIX}BigCrate`, unitPrice: 500, crateSize: 3000000000 } },
   ];
   for (const test of invalidTests) {
     try {
@@ -89,6 +98,36 @@ async function runTests() {
       results.registerProduct.invalidValues.push({ test: test.name, passed: true });
       console.log(`✅ Invalid ${test.name}: PASS - Threw "${e.message}"`);
     }
+  }
+
+  // K12 accepted configurations: positive integer and bottles-only (null)
+  try {
+    const res = await productService.registerProduct({ name: `${TEST_PREFIX}ValidIntCrate`, unitPrice: 500, crateSize: 12 });
+    if (res.product.crateSize === 12) {
+      results.registerProduct.validCrateSize = true;
+      console.log('✅ Valid crateSize=12: PASS - Stored as 12');
+    } else {
+      console.log(`❌ Valid crateSize=12: FAIL - Stored as ${res.product.crateSize}`);
+    }
+    await prisma.stock.delete({ where: { productId: res.product.id } });
+    await prisma.product.delete({ where: { id: res.product.id } });
+  } catch (e) {
+    console.log('❌ Valid crateSize=12: FAIL -', e.message);
+  }
+
+  try {
+    const res = await productService.registerProduct({ name: `${TEST_PREFIX}BottlesOnly`, unitPrice: 500, crateSize: null });
+    const stock = await stockRepository.findByProductId(res.product.id);
+    if (res.product.crateSize === null && stock && stock.quantityBottles === 0 && stock.quantityCrates === 0) {
+      results.registerProduct.bottlesOnly = true;
+      console.log('✅ Bottles-only (crateSize=null): PASS - Stored NULL, stock created');
+    } else {
+      console.log(`❌ Bottles-only (crateSize=null): FAIL - crateSize=${res.product.crateSize}`);
+    }
+    await prisma.stock.delete({ where: { productId: res.product.id } });
+    await prisma.product.delete({ where: { id: res.product.id } });
+  } catch (e) {
+    console.log('❌ Bottles-only (crateSize=null): FAIL -', e.message);
   }
 
   // Business rule: creates Stock row automatically
@@ -158,7 +197,9 @@ async function runTests() {
       reorderLevel: 10,
     });
   } catch (e) {
-    console.log('Setup failed:', e.message);
+    console.error('❌ Setup failed:', e.message);
+    await prisma.$disconnect().catch(() => {});
+    process.exit(1);
   }
 
   // Valid input
@@ -203,6 +244,42 @@ async function runTests() {
   } catch (e) {
     results.updateProduct.invalidValues.push({ test: 'negativeCrateSize', passed: true });
     console.log(`✅ Invalid negative crate size: PASS - Threw "${e.message}"`);
+  }
+
+  // K12: update-path rejects the same invalid shapes as create
+  const updateInvalidCrateSizes = [
+    { test: 'fractionalCrateSize', value: 12.5 },
+    { test: 'zeroCrateSize', value: 0 },
+    { test: 'nanCrateSize', value: NaN },
+    { test: 'infinityCrateSize', value: Infinity },
+    { test: 'stringCrateSize', value: '24' },
+  ];
+  for (const t of updateInvalidCrateSizes) {
+    try {
+      await productService.updateProduct(testProd.product.id, { crateSize: t.value });
+      results.updateProduct.invalidValues.push({ test: t.test, passed: false });
+      console.log(`❌ Invalid ${t.test}: FAIL - Should have thrown`);
+    } catch (e) {
+      results.updateProduct.invalidValues.push({ test: t.test, passed: true });
+      console.log(`✅ Invalid ${t.test}: PASS - Threw "${e.message}"`);
+    }
+  }
+
+  // K12 accepted transitions: 12 -> 24, then 24 -> null (clear to bottles-only)
+  try {
+    await productService.updateProduct(testProd.product.id, { crateSize: 24 });
+    await productService.updateProduct(testProd.product.id, { crateSize: null });
+    const dbProd = await prisma.product.findUnique({ where: { id: testProd.product.id } });
+    if (dbProd.crateSize === null) {
+      results.updateProduct.validCrateTransitions = true;
+      console.log('✅ Valid transitions 12->24->null: PASS - crateSize cleared to NULL');
+    } else {
+      console.log(`❌ Valid transitions 12->24->null: FAIL - crateSize=${dbProd.crateSize}`);
+    }
+    // Restore a valid crateSize so the remaining assertions see the original shape
+    await productService.updateProduct(testProd.product.id, { crateSize: 12 });
+  } catch (e) {
+    console.log('❌ Valid transitions 12->24->null: FAIL -', e.message);
   }
 
   try {
@@ -308,13 +385,16 @@ async function runTests() {
     console.log('❌ Valid input: FAIL -', e.message);
   }
 
-  try {
-    const res = await productService.listProducts('Beer');
-    if (Array.isArray(res)) {
-      results.listProducts.invalidValues.push({ test: 'categoryFilter', passed: true });
-      console.log('✅ Category filter: PASS - Returns filtered array');
-    }
-  } catch (e) {
+    try {
+      const res = await productService.listProducts('Beer');
+      if (Array.isArray(res)) {
+        results.listProducts.invalidValues.push({ test: 'categoryFilter', passed: true });
+        console.log('✅ Category filter: PASS - Returns filtered array');
+      } else {
+        results.listProducts.invalidValues.push({ test: 'categoryFilter', passed: false });
+        console.log('❌ Category filter: FAIL - Did not return an array');
+      }
+    } catch (e) {
     results.listProducts.invalidValues.push({ test: 'categoryFilter', passed: false });
     console.log('❌ Category filter: FAIL -', e.message);
   }
@@ -517,6 +597,10 @@ async function runTests() {
       if (val === 'N/A') {
         console.log(`  ${check}: ➖ N/A`);
       } else if (Array.isArray(val)) {
+        if (val.length === 0) {
+          console.log(`  ${check}: ➖ no checks recorded`);
+          continue;
+        }
         const allPass = val.every(v => v.passed === true);
         console.log(`  ${check}: ${allPass ? '✅ PASS' : '❌ FAIL'}`);
         val.forEach(v => console.log(`    - ${v.field || v.test}: ${v.passed ? '✅' : '❌'}`));
@@ -532,4 +616,8 @@ async function runTests() {
   return results;
 }
 
-runTests().catch(console.error);
+runTests().catch(async (e) => {
+  console.error('❌ Test runner crashed:', e);
+  await prisma.$disconnect().catch(() => {});
+  process.exit(1);
+});
